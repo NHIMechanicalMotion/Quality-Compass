@@ -25,18 +25,18 @@ export const DimensionDetailModal: React.FC<DimensionDetailModalProps> = ({
   onSave,
   onDelete,
 }) => {
-  if (!isOpen || !balloon || !item) return null;
+  const [itemNumber, setItemNumber] = useState<number>(balloon?.itemNumber || 1);
+  const [nameEn, setNameEn] = useState<string>(balloon?.dimensionName || '');
+  const [nameZh, setNameZh] = useState<string>(balloon?.dimensionNameZh || '');
+  const [type, setType] = useState<DimensionType>(balloon?.type || 'LINEAR');
+  const [classification, setClassification] = useState<CharacteristicClassification>(balloon?.classification || 'MINOR');
+  const [nominal, setNominal] = useState<number>(balloon?.nominal || 0);
+  const [upperTol, setUpperTol] = useState<number>(balloon?.upperTol || 0);
+  const [lowerTol, setLowerTol] = useState<number>(balloon?.lowerTol || 0);
+  const [zone, setZone] = useState<string>(balloon?.drawingZone || 'B-2');
+  const [color, setColor] = useState<string>(balloon?.balloonColor || '#2563eb');
 
-  const [itemNumber, setItemNumber] = useState<number>(balloon.itemNumber);
-  const [nameEn, setNameEn] = useState<string>(balloon.dimensionName);
-  const [nameZh, setNameZh] = useState<string>(balloon.dimensionNameZh);
-  const [type, setType] = useState<DimensionType>(balloon.type);
-  const [classification, setClassification] = useState<CharacteristicClassification>(balloon.classification);
-  const [nominal, setNominal] = useState<number>(balloon.nominal);
-  const [upperTol, setUpperTol] = useState<number>(balloon.upperTol);
-  const [lowerTol, setLowerTol] = useState<number>(balloon.lowerTol);
-  const [zone, setZone] = useState<string>(balloon.drawingZone || 'B-2');
-  const [color, setColor] = useState<string>(balloon.balloonColor || '#2563eb');
+  if (!isOpen || !balloon || !item) return null;
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();

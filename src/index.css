@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+@theme {
+  --color-nhi-navy: #0B2545;
+  --color-nhi-navy-dark: #07172C;
+  --color-nhi-navy-light: #132E58;
+  --color-nhi-blue: #1C4482;
+  --color-mantis-green: #81C341;
+  --color-mantis-green-hover: #72B233;
+  --color-mantis-green-light: #9BD85C;
+  --color-mantis-dark: #1b3b18;
+}
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -7,7 +18,7 @@
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background-color: #0f172a;
+    background-color: #07172C;
     color: #f8fafc;
     overflow-x: hidden;
   }
@@ -19,20 +30,21 @@
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: #07172C;
 }
 ::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #1e3a5f;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #81C341;
 }
 
 .cad-grid-pattern {
   background-size: 24px 24px;
   background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    linear-gradient(to right, rgba(129, 195, 65, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(129, 195, 65, 0.05) 1px, transparent 1px);
 }
+
 

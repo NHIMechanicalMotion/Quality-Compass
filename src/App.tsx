@@ -9,6 +9,8 @@ import { SupabaseRevisionsModal } from './components/SupabaseRevisionsModal';
 import { AddInspectionMethodModal } from './components/AddInspectionMethodModal';
 import { AutoBalloonReviewModal } from './components/AutoBalloonReviewModal';
 import { TemplateManagerModal } from './components/TemplateManagerModal';
+import { QmsDashboard } from './components/qms/QmsDashboard';
+import { ApqpPpapDashboard } from './components/apqp/ApqpPpapDashboard';
 import type { StandardType, TitleBlockMetadata, AuditReport } from './types/cad';
 import type { InspectionBalloon } from './types/balloon';
 import type { InspectionControlPlan, InspectionControlPlanItem, ChinaApprovalRecord, InspectionMethodTool } from './types/inspection';
@@ -31,9 +33,37 @@ import {
 } from './utils/cadOcrParser';
 import { extractTitleBlockMetadata, applyExtractedTitleBlock } from './utils/titleBlockExtractor';
 import { getStoredPartFamilyProfiles, savePartFamilyProfile, resetPartFamilyProfilesToDefault } from './utils/templateManager';
+import type { OperatingCompanyId } from './data/operatingCompanies';
 import { saveAs } from 'file-saver';
 
 export function App() {
+  // Operating company scope (NHI Mechanical Motion LLC, NHI, Terre, Mantis, Makers)
+  const [selectedCompany, setSelectedCompany] = useState<OperatingCompanyId>('ALL');
+
+  // Mode selection: Pillar 1 (Inspection & FAI) vs Pillar 2 (QMS Executive) vs Pillar 3 (APQP & PPAP Launch Hub)
+  const [activeViewMode, setActiveViewMode] = useState<'INSPECTION' | 'QMS_DASHBOARD' | 'APQP_PPAP'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const modeParam = params.get('mode');
+      if (modeParam === 'APQP_PPAP' || window.location.hash === '#apqp') return 'APQP_PPAP';
+      if (modeParam === 'QMS_DASHBOARD' || window.location.hash === '#qms') return 'QMS_DASHBOARD';
+    }
+    return 'INSPECTION';
+  });
+
+  // Sync mode changes to URL hash for deep linking
+  useEffect(() => {
+    if (activeViewMode === 'APQP_PPAP') {
+      window.location.hash = '#apqp';
+    } else if (activeViewMode === 'QMS_DASHBOARD') {
+      window.location.hash = '#qms';
+    } else {
+      if (window.location.hash === '#apqp' || window.location.hash === '#qms') {
+        history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  }, [activeViewMode]);
+
   // Current active drawing selection
   const [currentDrawingId, setCurrentDrawingId] = useState<string>('drawing-flange');
   const [metadata, setMetadata] = useState<TitleBlockMetadata>(PRELOADED_DRAWINGS[0].metadata);
@@ -628,8 +658,11 @@ export function App() {
     const targetBalloonId = idOrItemId.startsWith('item-')
       ? idOrItemId.replace(/^item-/, '')
       : idOrItemId;
-    setBalloons(prev => prev.filter(b => b.id !== targetBalloonId));
-    if (selectedBalloonId === targetBalloonId) setSelectedBalloonId(null);
+    setBalloons(prev => prev.filter(b => b.id !== targetBalloonId && b.id !== idOrItemId));
+    setItems(prev => prev.filter(it => it.balloonId !== targetBalloonId && it.id !== idOrItemId && it.id !== `item-${targetBalloonId}`));
+    if (selectedBalloonId === targetBalloonId || selectedBalloonId === idOrItemId) {
+      setSelectedBalloonId(null);
+    }
   };
 
   // Update item from table
@@ -819,6 +852,10 @@ export function App() {
       
       {/* App Navigation & Header Bar */}
       <Header
+        activeViewMode={activeViewMode}
+        onToggleViewMode={setActiveViewMode}
+        selectedCompany={selectedCompany}
+        onSelectCompany={setSelectedCompany}
         currentDrawingId={currentDrawingId}
         onSelectDrawing={handleSelectDrawing}
         activeStandard={activeStandard}
@@ -839,8 +876,28 @@ export function App() {
         onChangeLanguage={setLanguage}
       />
 
-      {/* Main Workspace Split View */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+      {/* Main Workspace Area: Pillar 3 (APQP & PPAP Launch Hub) vs Pillar 2 (QMS Executive) vs Pillar 1 (CAD Drawing & FAI) */}
+      {activeViewMode === 'APQP_PPAP' ? (
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          <ApqpPpapDashboard
+            selectedCompany={selectedCompany}
+            onSwitchToInspection={() => setActiveViewMode('INSPECTION')}
+            availableBalloons={balloons.map((b) => ({
+              itemNumber: b.itemNumber,
+              dimensionName: b.dimensionName,
+              nominal: b.nominal,
+              upperTol: b.upperTol,
+              lowerTol: b.lowerTol,
+            }))}
+          />
+        </div>
+      ) : activeViewMode === 'QMS_DASHBOARD' ? (
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          <QmsDashboard onSwitchToInspection={() => setActiveViewMode('INSPECTION')} />
+        </div>
+      ) : (
+        /* Main Workspace Split View */
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
         
         {/* Left: Interactive CAD Drawing Canvas */}
         <div className="flex-1 flex flex-col min-h-[400px] h-full relative">
@@ -901,6 +958,7 @@ export function App() {
         </div>
 
       </div>
+      )}
 
       {/* Add Custom Inspection Method & Tooling Modal */}
       <AddInspectionMethodModal
