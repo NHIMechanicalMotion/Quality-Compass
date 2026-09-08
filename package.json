@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "postbuild": "node -e \"const fs=require('fs'); fs.cpSync('dist', '.vitepress/dist', {recursive: true, force: true});\"",
     "lint": "oxlint",
     "preview": "vite preview"
   },

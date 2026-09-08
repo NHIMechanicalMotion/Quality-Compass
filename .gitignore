@@ -26,7 +26,3 @@ dist-ssr
 .env*.local
 /*.xls
 /*.xltm
-.vitepress
-
-
-
