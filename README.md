@@ -8,45 +8,33 @@ React + TypeScript + Vite app for quality / ops workflows.
 - `npm run build` — typecheck + production build to `dist/`
 - `npm run preview` — preview the production build
 - `npm run lint` — Oxlint
-- `npm run deploy` — upload `dist/` with Wrangler (`wrangler deploy`)
+- `npm run deploy` — `wrangler deploy` (static assets + Worker)
 
 ## Cloudflare
 
-This app is a Vite SPA. Production assets go in **`dist/`**.
+Git deploys use **Workers Builds**: `npm run build`, then `npx wrangler deploy` on `main` and `npx wrangler versions upload` on pull requests.
 
-Git integration on this repo uses **Workers Builds**: `npm run build`, then `npx wrangler deploy`. `wrangler.json` must be a Workers config (`assets.directory`), not a Pages config (`pages_build_output_dir`). Using the Pages field makes `wrangler deploy` fail after Vite finishes.
+Pull-request deploys cannot create a Worker that has never been published. `scripts/install-wrangler-shim.mjs` (via `postinstall`) maps `versions upload` to `deploy` so the first Git build can create `quality-compass`.
 
-The Worker name in the Cloudflare dashboard **must** be `quality-compass` (same as `wrangler.json`).
-
-Pull-request checks from Cloudflare stay red unless **non-production branch builds** are enabled. A red "Workers Builds" check that completes in under a second is that skip, not a Vite failure. Enable it under **Worker → Settings → Builds**, or merge to `main` for a production deploy.
+`wrangler.json` is a Worker named `quality-compass` (must match the dashboard Worker). Vite output is `dist/`. Client-side routes use `assets.not_found_handling: "single-page-application"`. Do **not** add a Pages-style `/* /index.html 200` rule in `_redirects` — Workers treats that as an infinite loop (error 100324).
 
 | Setting | Value |
 | --- | --- |
 | Build command | `npm run build` |
-| Deploy command | `npx wrangler deploy` (or `npm run deploy`, which builds first) |
-| Non-production deploy command | `npx wrangler versions upload` |
-| Non-production branch builds | **On** (required for PR preview checks) |
-| Node.js version | **22** (must match `.nvmrc`; `pdfjs-dist` and `@supabase/supabase-js` require Node 22+) |
+| Deploy command | `npx wrangler deploy` |
+| Non-production deploy | `npx wrangler versions upload` |
+| Node.js version | **22** |
 
-If a `NODE_VERSION` environment variable is set on the Worker, it **overrides** `.nvmrc`. Set it to `22` (or unset it).
-
-SPA client-side routes are handled by `assets.not_found_handling: "single-page-application"` in `wrangler.json`. `public/_redirects` is still copied into `dist/` for Pages-style fallbacks:
-
-```
-/*    /index.html   200
-```
-
-If a Pages project is still connected, keep its **Build output directory** set to `dist` in the dashboard. Do **not** point it at `.vitepress/dist`.
+If deploy fails with a **workers.dev subdomain** error, open Workers & Pages in that Cloudflare account and register a `*.workers.dev` subdomain once.
 
 ## Local deploy check
 
-Requires **Node.js 22.13+** (see `.nvmrc` and `package.json` `engines`).
+Requires **Node.js 22.13+**.
 
 ```bash
 npm ci
 npm run build
 npx wrangler deploy --dry-run
-# confirm assets under dist/ and that Wrangler accepts the Workers assets config
 ```
 
 ## Oxlint

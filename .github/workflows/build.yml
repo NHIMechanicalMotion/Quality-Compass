@@ -16,7 +16,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Validate Workers assets config
+      - name: Confirm SPA output
+        run: test -f dist/index.html
+      - name: Validate wrangler deploy
         run: npx wrangler deploy --dry-run
-      - name: Validate preview upload config
+      - name: Validate wrangler versions upload
         run: npx wrangler versions upload --dry-run
