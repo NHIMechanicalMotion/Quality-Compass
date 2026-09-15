@@ -14,9 +14,9 @@ React + TypeScript + Vite app for quality / ops workflows.
 
 Git deploys use **Workers Builds**: `npm run build`, then `npx wrangler deploy` on `main` and `npx wrangler versions upload` on pull requests.
 
-Pull-request deploys cannot create a Worker that has never been published. `scripts/wrangler-ci.mjs` (installed via `postinstall`) maps `versions upload` to `deploy` so the first Git build can create `quality-compass`.
+Pull-request deploys cannot create a Worker that has never been published. `scripts/install-wrangler-shim.mjs` (via `postinstall`) maps `versions upload` to `deploy` so the first Git build can create `quality-compass`.
 
-`wrangler.json` is a Worker named `quality-compass` (must match the dashboard Worker). Vite output is `dist/`. Client routes use `assets.not_found_handling: "single-page-application"` and `public/_redirects`.
+`wrangler.json` is a Worker named `quality-compass` (must match the dashboard Worker). Vite output is `dist/`. Client-side routes use `assets.not_found_handling: "single-page-application"`. Do **not** add a Pages-style `/* /index.html 200` rule in `_redirects` — Workers treats that as an infinite loop (error 100324).
 
 | Setting | Value |
 | --- | --- |

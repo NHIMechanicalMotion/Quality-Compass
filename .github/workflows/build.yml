@@ -17,9 +17,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Confirm SPA output
-        run: |
-          test -f dist/index.html
-          test -f dist/_redirects
+        run: test -f dist/index.html
       - name: Validate wrangler deploy
         run: npx wrangler deploy --dry-run
       - name: Validate wrangler versions upload
