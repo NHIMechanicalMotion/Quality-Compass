@@ -16,10 +16,16 @@ This app is a Vite SPA. Production assets go in **`dist/`**.
 
 Git integration on this repo uses **Workers Builds**: `npm run build`, then `npx wrangler deploy`. `wrangler.json` must be a Workers config (`assets.directory`), not a Pages config (`pages_build_output_dir`). Using the Pages field makes `wrangler deploy` fail after Vite finishes.
 
+The Worker name in the Cloudflare dashboard **must** be `quality-compass` (same as `wrangler.json`).
+
+Pull-request checks from Cloudflare stay red unless **non-production branch builds** are enabled. A red "Workers Builds" check that completes in under a second is that skip, not a Vite failure. Enable it under **Worker → Settings → Builds**, or merge to `main` for a production deploy.
+
 | Setting | Value |
 | --- | --- |
 | Build command | `npm run build` |
-| Deploy command | `npx wrangler deploy` (Workers Builds default) |
+| Deploy command | `npx wrangler deploy` (or `npm run deploy`, which builds first) |
+| Non-production deploy command | `npx wrangler versions upload` |
+| Non-production branch builds | **On** (required for PR preview checks) |
 | Node.js version | **22** (must match `.nvmrc`; `pdfjs-dist` and `@supabase/supabase-js` require Node 22+) |
 
 If a `NODE_VERSION` environment variable is set on the Worker, it **overrides** `.nvmrc`. Set it to `22` (or unset it).
