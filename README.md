@@ -8,29 +8,29 @@ React + TypeScript + Vite app for quality / ops workflows.
 - `npm run build` — typecheck + production build to `dist/`
 - `npm run preview` — preview the production build
 - `npm run lint` — Oxlint
+- `npm run deploy` — upload `dist/` with Wrangler (`wrangler deploy`)
 
-## Cloudflare Pages
+## Cloudflare
 
-This app is a standard Vite SPA. Build output is **`dist`** (also set in `wrangler.json` as `pages_build_output_dir`).
+This app is a Vite SPA. Production assets go in **`dist/`**.
 
-In the Cloudflare Pages project settings, use:
+Git integration on this repo uses **Workers Builds**: `npm run build`, then `npx wrangler deploy`. `wrangler.json` must be a Workers config (`assets.directory`), not a Pages config (`pages_build_output_dir`). Using the Pages field makes `wrangler deploy` fail after Vite finishes.
 
 | Setting | Value |
 | --- | --- |
-| Framework preset | Vite (or None) |
 | Build command | `npm run build` |
-| Build output directory | `dist` |
+| Deploy command | `npx wrangler deploy` (Workers Builds default) |
 | Node.js version | **22** (must match `.nvmrc`; `pdfjs-dist` and `@supabase/supabase-js` require Node 22+) |
 
-If a `NODE_VERSION` environment variable is set in the Pages project, it **overrides** `.nvmrc`. Set it to `22` (or unset it so `.nvmrc` / `.node-version` take effect). Node 20 will emit `EBADENGINE` warnings and can fail the Vite production build.
+If a `NODE_VERSION` environment variable is set on the Worker, it **overrides** `.nvmrc`. Set it to `22` (or unset it).
 
-Do **not** point the output directory at `.vitepress/dist` — that path was a temporary workaround and is no longer used.
-
-SPA client-side routes are handled by `public/_redirects`:
+SPA client-side routes are handled by `assets.not_found_handling: "single-page-application"` in `wrangler.json`. `public/_redirects` is still copied into `dist/` for Pages-style fallbacks:
 
 ```
 /*    /index.html   200
 ```
+
+If a Pages project is still connected, keep its **Build output directory** set to `dist` in the dashboard. Do **not** point it at `.vitepress/dist`.
 
 ## Local deploy check
 
@@ -39,7 +39,8 @@ Requires **Node.js 22.13+** (see `.nvmrc` and `package.json` `engines`).
 ```bash
 npm ci
 npm run build
-# confirm assets under dist/
+npx wrangler deploy --dry-run
+# confirm assets under dist/ and that Wrangler accepts the Workers assets config
 ```
 
 ## Oxlint
