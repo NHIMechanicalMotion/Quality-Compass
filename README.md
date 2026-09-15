@@ -12,7 +12,9 @@ React + TypeScript + Vite app for quality / ops workflows.
 
 ## Cloudflare
 
-Git deploys use **Workers Builds**: `npm run build`, then `npx wrangler deploy`.
+Git deploys use **Workers Builds**: `npm run build`, then `npx wrangler deploy` on `main` and `npx wrangler versions upload` on pull requests.
+
+Pull-request deploys cannot create a Worker that has never been published. `scripts/wrangler-ci.mjs` (installed via `postinstall`) maps `versions upload` to `deploy` so the first Git build can create `quality-compass`.
 
 `wrangler.json` is a Worker named `quality-compass` (must match the dashboard Worker). Vite output is `dist/`. Client routes use `assets.not_found_handling: "single-page-application"` and `public/_redirects`.
 
