@@ -20,7 +20,9 @@ In the Cloudflare Pages project settings, use:
 | Framework preset | Vite (or None) |
 | Build command | `npm run build` |
 | Build output directory | `dist` |
-| Node.js version | 20 (or matching `.nvmrc`) |
+| Node.js version | **22** (must match `.nvmrc`; `pdfjs-dist` and `@supabase/supabase-js` require Node 22+) |
+
+If a `NODE_VERSION` environment variable is set in the Pages project, it **overrides** `.nvmrc`. Set it to `22` (or unset it so `.nvmrc` / `.node-version` take effect). Node 20 will emit `EBADENGINE` warnings and can fail the Vite production build.
 
 Do **not** point the output directory at `.vitepress/dist` — that path was a temporary workaround and is no longer used.
 
@@ -31,6 +33,8 @@ SPA client-side routes are handled by `public/_redirects`:
 ```
 
 ## Local deploy check
+
+Requires **Node.js 22.13+** (see `.nvmrc` and `package.json` `engines`).
 
 ```bash
 npm ci
