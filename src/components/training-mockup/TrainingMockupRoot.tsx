@@ -40,8 +40,13 @@ export const TrainingMockupRoot: React.FC<TrainingMockupRootProps> = ({
   // Navigation State
   const [activeView, setActiveView] = useState<ActiveView>('HOME');
   
-  // Collapsible Header State (leaves maximum visible phone screen for shop-floor tasks)
-  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  // Collapsible Header State: Defaults to true on phone screens (< 768px) so users get full screen immediately
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 768;
+    }
+    return false;
+  });
 
   // Mutable Mock Data in memory (allows testing sign-off and completion flows)
   const [operators, setOperators] = useState<OperatorRecord[]>(INITIAL_OPERATORS_DATA);
@@ -172,14 +177,14 @@ export const TrainingMockupRoot: React.FC<TrainingMockupRootProps> = ({
           </div>
         ) : (
           /* EXPANDED HEADER: Full 5-item navigation bar + Collapse button */
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 flex-wrap">
-            {/* Logo & Module Title */}
-            <div className="flex items-center gap-3">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            {/* Top row on phone screens: Logo on left, prominent Collapse button on right */}
+            <div className="flex items-center justify-between w-full sm:w-auto">
               <button
                 onClick={() => handleNavigate('HOME')}
-                className="flex items-center gap-2.5 text-left focus:outline-none focus:ring-2 focus:ring-lime-400 rounded-lg p-1"
+                className="flex items-center gap-2.5 text-left focus:outline-none focus:ring-2 focus:ring-lime-400 rounded-lg p-1 min-h-[48px]"
               >
-                <div className="w-10 h-10 rounded-xl bg-lime-500/20 border-2 border-lime-400 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-lime-500/20 border-2 border-lime-400 flex items-center justify-center shrink-0">
                   <ShieldCheck className="w-6 h-6 text-lime-400" />
                 </div>
                 <div>
@@ -191,10 +196,20 @@ export const TrainingMockupRoot: React.FC<TrainingMockupRootProps> = ({
                   </span>
                 </div>
               </button>
+
+              {/* Mobile Collapse Button (Row 1 on phone, always visible immediately) */}
+              <button
+                onClick={() => setIsHeaderCollapsed(true)}
+                className="sm:hidden min-h-[48px] px-3.5 py-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 border-2 border-slate-600 rounded-xl text-slate-200 hover:text-white font-bold text-base flex items-center gap-2 transition-colors cursor-pointer shrink-0"
+                title="Collapse header to see more phone screen"
+              >
+                <span>Collapse</span>
+                <ChevronUp className="w-5 h-5 text-lime-400 shrink-0" />
+              </button>
             </div>
 
             {/* EXACTLY 5 NAVIGATION ITEMS (Max 5 Rule) */}
-            <nav className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto py-1">
+            <nav className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto py-1 w-full sm:w-auto">
               {/* Nav Item 1: Home */}
               <button
                 onClick={() => handleNavigate('HOME')}
@@ -258,8 +273,8 @@ export const TrainingMockupRoot: React.FC<TrainingMockupRootProps> = ({
               </button>
             </nav>
 
-            {/* Collapse Header Button + Return Link */}
-            <div className="flex items-center gap-2 ml-auto sm:ml-0">
+            {/* Desktop Controls (Collapse button + Quality Compass Return Link) */}
+            <div className="hidden sm:flex items-center gap-2 ml-auto sm:ml-0">
               <button
                 onClick={() => setIsHeaderCollapsed(true)}
                 className="min-h-[48px] px-3.5 sm:px-4 py-2.5 bg-slate-800/90 hover:bg-slate-700 active:bg-slate-900 border-2 border-slate-600 hover:border-slate-500 rounded-xl text-slate-200 hover:text-white font-bold text-base flex items-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-lime-400"

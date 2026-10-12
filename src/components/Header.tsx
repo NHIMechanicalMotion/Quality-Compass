@@ -76,7 +76,12 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeLanguage,
 }) => {
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
-  const [isMobileCollapsed, setIsMobileCollapsed] = useState(false);
+  const [isMobileCollapsed, setIsMobileCollapsed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 1024;
+    }
+    return false;
+  });
   const toolsMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
