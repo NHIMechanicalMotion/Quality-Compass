@@ -11,7 +11,7 @@ import { AutoBalloonReviewModal } from './components/AutoBalloonReviewModal';
 import { TemplateManagerModal } from './components/TemplateManagerModal';
 import { QmsDashboard } from './components/qms/QmsDashboard';
 import { ApqpPpapDashboard } from './components/apqp/ApqpPpapDashboard';
-import { TrainingMockupRoot } from './components/training-mockup/TrainingMockupRoot';
+import { TrainingPhase1Root } from './components/training/TrainingPhase1Root';
 import type { StandardType, TitleBlockMetadata, AuditReport } from './types/cad';
 import type { InspectionBalloon } from './types/balloon';
 import type { InspectionControlPlan, InspectionControlPlanItem, ChinaApprovalRecord, InspectionMethodTool } from './types/inspection';
@@ -850,10 +850,10 @@ export function App() {
   const activeBalloon = balloons.find(b => b.id === selectedBalloonId) || null;
   const activeItem = items.find(it => it.balloonId === selectedBalloonId) || null;
 
-  // Render Phase 1a Training Mock-Up (clean, shop-floor touch interface)
+  // Render Phase 1 Training & Skills Qualification Engine
   if (activeViewMode === 'TRAINING_MOCKUP') {
     return (
-      <TrainingMockupRoot onExitMockup={() => setActiveViewMode('QMS_DASHBOARD')} />
+      <TrainingPhase1Root onExitToQualityCompass={() => setActiveViewMode('QMS_DASHBOARD')} />
     );
   }
 

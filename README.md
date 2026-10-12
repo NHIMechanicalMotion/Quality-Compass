@@ -70,6 +70,15 @@ NHI Mechanical Motion LLC operates four specialized manufacturing businesses fro
 - **China QC Inspection Workflow:** Dedicated bilingual English/Chinese modal for overseas inspection sign-off, dispositioning, and inspector authorization.
 - **AS9102 / AIAG Inspection Export:** Instant generation of formatted Excel First Article Inspection workbooks and PDF inspection packages.
 
+### Shop-Floor Operator Training & Skills Qualification System (`#training`)
+- **ISO 9001:2015 Clause 7.2 Compliance:** End-to-end competency tracking, training catalogs, and append-only certification histories.
+- **Dual Authentication Modes:** Shop-floor touch keypad (Employee Badge # + 4-digit PIN) for gloved floor use, and Supabase Auth (Email + Password) for office/administration.
+- **Interactive Skills Matrix:** Real-time cross-tabulation of active workforce $\times$ work centers with Tri-Attribute status display (Color + Word + Icon), department filters, and cell audit inspection.
+- **Supervisor Sign-Off Workflow:** Mobile-optimized observation checklist (E-stop, PPE, tooling setup, 5-piece FAI) with explicit two-step confirmation dialog.
+- **Single-Page Printable Dossiers:** Printable employee qualification records with active certifications, full training logs, and formal auditor signature blocks.
+- **Compliance Dashboards & Gap Matrix:** Automated identification of expired certifications, 30-day renewal windows, and missing role/machine prerequisite onboarding gaps.
+- **Two-Stage CSV Import & ZIP Export:** Ingest workforce and machine records with validation preview and download full system data in a single ZIP backup.
+
 ---
 
 ## 4. Dual-Supabase Database Architecture

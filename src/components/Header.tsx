@@ -332,7 +332,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <div className="font-semibold flex items-center gap-1.5">
                         Shop Floor Training Hub
                         <span className="text-[9px] uppercase px-1.5 py-0.2 rounded-full bg-lime-500/20 text-lime-300 border border-lime-400/40 font-bold">
-                          Phase 1a
+                          Phase 1
                         </span>
                       </div>
                       <div className="text-[11px] text-slate-400 font-normal">
@@ -356,12 +356,12 @@ export const Header: React.FC<HeaderProps> = ({
                   ? 'bg-lime-950 text-lime-200 border border-lime-400 shadow-md ring-2 ring-lime-400/40'
                   : 'bg-lime-950/30 text-lime-300 hover:bg-lime-900/50 hover:text-white border border-lime-500/30'
               }`}
-              title="Shop-Floor Operator Training & Skills Qualification System (Phase 1a Clickable Mock-Up)"
+              title="Shop-Floor Operator Training & Skills Qualification System (Phase 1)"
             >
               <GraduationCap className="w-3.5 h-3.5 text-lime-400" />
               <span>Shop Training</span>
               <span className="text-[10px] uppercase px-1.5 py-0.2 rounded-full bg-lime-500/20 text-lime-300 font-bold border border-lime-400/40">
-                Phase 1a
+                Phase 1
               </span>
             </button>
           </div>

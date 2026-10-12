@@ -1,0 +1,17 @@
+{
+  "short_name": "Training Hub",
+  "name": "NHI Quality Compass — Shop Floor Training & Skills",
+  "description": "Shop-Floor Operator Training, Machine Skills Qualifications, and ISO 9001:2015 Competency System for NHI Mechanical Motion LLC",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "start_url": "/#training",
+  "background_color": "#07172C",
+  "theme_color": "#07172C",
+  "display": "standalone",
+  "orientation": "any"
+}
