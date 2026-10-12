@@ -177,20 +177,38 @@ def connect_odoo(url: str, db: str, user: str, password: str):
     return uid, models, series, used_db
 
 
+def normalize_supabase_url(url: str) -> str:
+    """Ensure Supabase URL is strictly scheme://host without trailing slashes or subpaths."""
+    text = (url or "").strip().strip('"').strip("'").strip().rstrip("/")
+    if not text:
+        return ""
+    if "://" not in text:
+        text = f"https://{text}"
+    parsed = urlparse(text)
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+
 def connect_supabase():
     """Connect to Supabase using the Service Role Key for writing sync tables."""
-    supabase_url = _env("SUPABASE_URL") or _env("VITE_SUPABASE_URL")
+    raw_url = _env("SUPABASE_URL") or _env("VITE_SUPABASE_URL")
     service_key = _env("SUPABASE_SERVICE_ROLE_KEY")
 
-    if not supabase_url or not service_key:
+    if not raw_url or not service_key:
         print("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.")
         return None
+
+    supabase_url = normalize_supabase_url(raw_url)
+    print(f"Connecting to Supabase at {supabase_url}...")
 
     if not create_client:
         print("supabase-py package not available.")
         return None
 
-    return create_client(supabase_url, service_key)
+    try:
+        return create_client(supabase_url, service_key)
+    except Exception as exc:
+        print(f"Failed to initialize Supabase client: {exc}")
+        return None
 
 
 # ============================================================================
