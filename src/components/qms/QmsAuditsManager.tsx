@@ -231,15 +231,30 @@ export const QmsAuditsManager: React.FC<Props> = ({
 
       {/* Audits List & Findings Accordion */}
       <div className="space-y-4">
-        {filteredAudits.map((audit) => {
-          const isExpanded = expandedAuditId === audit.id;
-          const auditFindings = audit.findings || [];
-
-          return (
-            <div
-              key={audit.id}
-              className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg transition-all"
+        {filteredAudits.length === 0 ? (
+          <div className="bg-slate-900/60 border border-dashed border-slate-800 rounded-xl p-12 text-center">
+            <ShieldCheck className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+            <h3 className="text-base font-semibold text-slate-300">No Quality Audits Recorded</h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+              There are no internal or external audits matching the current filter. Schedule or log a new audit to track standard conformance.
+            </p>
+            <button
+              onClick={() => setIsAddAuditModalOpen(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-500/20 transition-all inline-flex items-center gap-1.5"
             >
+              <Plus className="w-4 h-4" /> Schedule First Audit
+            </button>
+          </div>
+        ) : (
+          filteredAudits.map((audit) => {
+            const isExpanded = expandedAuditId === audit.id;
+            const auditFindings = audit.findings || [];
+
+            return (
+              <div
+                key={audit.id}
+                className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg transition-all"
+              >
               {/* Card Header */}
               <div
                 onClick={() => setExpandedAuditId(isExpanded ? null : audit.id)}
@@ -388,7 +403,7 @@ export const QmsAuditsManager: React.FC<Props> = ({
               )}
             </div>
           );
-        })}
+        }))}
       </div>
 
       {/* Modal: Schedule / Log New Audit */}

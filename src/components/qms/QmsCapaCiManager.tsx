@@ -284,15 +284,30 @@ export const QmsCapaCiManager: React.FC<Props> = ({
 
       {/* VIEW 1: 8D CAPA WORKFLOW */}
       {activeSubTab === '8D_CAPA' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: CAPA List */}
-          <div className="space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Active Corrective Action Requests
-            </h3>
+        capas.length === 0 ? (
+          <div className="bg-slate-900/60 border border-dashed border-slate-800 rounded-xl p-12 text-center">
+            <ShieldCheck className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+            <h3 className="text-base font-semibold text-slate-300">No Active 8D Corrective Actions</h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+              There are currently zero open CAPA non-conformances. Initiate an 8D investigation when a systemic quality issue is detected.
+            </p>
+            <button
+              onClick={() => setIsAddCapaModalOpen(true)}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-amber-500/20 transition-all inline-flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" /> Initiate 8D Investigation
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column: CAPA List */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Active Corrective Action Requests
+              </h3>
 
-            {capas.map((c) => {
-              const isSelected = c.id === selectedCapa?.id;
+              {capas.map((c) => {
+                const isSelected = c.id === selectedCapa?.id;
               return (
                 <div
                   key={c.id}
@@ -458,6 +473,7 @@ export const QmsCapaCiManager: React.FC<Props> = ({
             <div className="lg:col-span-2 text-center py-12 text-slate-500">No CAPA selected.</div>
           )}
         </div>
+        )
       )}
 
       {/* VIEW 2: CONTINUOUS IMPROVEMENT (KAIZEN) */}
@@ -499,12 +515,27 @@ export const QmsCapaCiManager: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {ciList.map((ci) => (
-              <div
-                key={ci.id}
-                className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow-lg flex flex-col justify-between"
+          {ciList.length === 0 ? (
+            <div className="bg-slate-900/60 border border-dashed border-slate-800 rounded-xl p-12 text-center">
+              <Lightbulb className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+              <h3 className="text-base font-semibold text-slate-300">No Kaizen Proposals Logged</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+                Drive operational excellence by submitting Lean Kaizen or scrap reduction proposals from shopfloor teams.
+              </p>
+              <button
+                onClick={() => setIsAddCiModalOpen(true)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-emerald-500/20 transition-all inline-flex items-center gap-1.5"
               >
+                <Plus className="w-4 h-4" /> Submit First Kaizen Proposal
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {ciList.map((ci) => (
+                <div
+                  key={ci.id}
+                  className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow-lg flex flex-col justify-between"
+                >
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
@@ -555,8 +586,9 @@ export const QmsCapaCiManager: React.FC<Props> = ({
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
+    )}
 
       {/* VIEW 3: ODOO ERP QUALITY BRIDGE */}
       {activeSubTab === 'ODOO_BRIDGE' && (

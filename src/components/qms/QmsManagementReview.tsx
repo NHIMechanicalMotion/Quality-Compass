@@ -46,8 +46,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-a',
     clause: '9.3.2.a', 
     topic: 'Status of actions from previous management reviews', 
-    status: 'CONFORMING', 
-    notes: 'Reviewed action register from prior review period; open actions carried forward.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 15,
     presenter: 'Quality Lead',
     clause_description: 'Follow-up on all open, pending, and completed action directives from preceding MRM sessions.'
@@ -56,8 +56,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-b',
     clause: '9.3.2.b', 
     topic: 'Changes in external and internal context relevant to QMS', 
-    status: 'CONFORMING', 
-    notes: 'Reviewed changes in regulatory requirements, manufacturing footprints, and critical supply chain dual-sourcing.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 15,
     presenter: 'VP Operations',
     clause_description: 'Assessment of market, statutory, regulatory, and organizational changes impacting QMS suitability.'
@@ -66,8 +66,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-c-1',
     clause: '9.3.2.c.1', 
     topic: 'Customer satisfaction & feedback from interested parties', 
-    status: 'EXCELLENT', 
-    notes: 'Customer scorecard average 97.4% YTD. Zero major customer escapes recorded.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 20,
     presenter: 'Customer Quality Mgr',
     clause_description: 'NPS, CSAT ratings, customer audit results, and formal warranty claims.'
@@ -76,8 +76,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-c-2',
     clause: '9.3.2.c.2', 
     topic: 'Extent to which quality objectives have been met', 
-    status: 'CONFORMING', 
-    notes: 'On-time delivery (OTD) at 98.6%; Scrap within target threshold; FAI approval rate 98.1%.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 20,
     presenter: 'QA VP',
     clause_description: 'Tracking KPI achievement against plant and corporate quality objectives.'
@@ -86,8 +86,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-c-3',
     clause: '9.3.2.c.3', 
     topic: 'Process performance & conformity of products & services', 
-    status: 'CONFORMING', 
-    notes: 'Live Odoo shopfloor telemetry evaluated: overall PPM, Cpk capability on critical pulley/flange dimensions, and workcenter yield.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 25,
     presenter: 'Manufacturing Mgr',
     clause_description: 'Statistical process control, in-process CMM verification, and Odoo scrap metrics.'
@@ -96,8 +96,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-c-4',
     clause: '9.3.2.c.4', 
     topic: 'Nonconformities and corrective actions (CAPA / 8D)', 
-    status: 'CONFORMING', 
-    notes: 'Reviewed open 8D root-cause containment cycles, MRB quarantined lots, and mean time to closure (MTTR).',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 25,
     presenter: 'Sr Quality Engineer',
     clause_description: 'Status of open/closed CAPAs, recurring nonconformances, and 8D verification.'
@@ -106,8 +106,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-c-5',
     clause: '9.3.2.c.5', 
     topic: 'Monitoring and measurement results', 
-    status: 'CONFORMING', 
-    notes: '100% calibration compliance maintained on shopfloor gages; First Article Inspection reports verified in Quality Compass.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 15,
     presenter: 'Metrology Lead',
     clause_description: 'Calibration status, gage R&R repeatability, and inspection bubble print conformity.'
@@ -116,8 +116,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-c-6',
     clause: '9.3.2.c.6', 
     topic: 'Audit results (Internal, External Registrar, Customer, Regulatory)', 
-    status: 'CONFORMING', 
-    notes: 'Cross-functional review of internal audits, TUV registrar surveillance, and customer line audits.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 25,
     presenter: 'Chief Auditor',
     clause_description: 'Findings, non-conformities, and opportunities for improvement from all audit tiers.'
@@ -126,8 +126,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-c-7',
     clause: '9.3.2.c.7', 
     topic: 'Performance of external providers (Suppliers & Vendors)', 
-    status: 'CONFORMING', 
-    notes: 'Evaluated raw material suppliers, bar stock certs, anodizing vendor yield, and supplier RMA cost recovery.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 15,
     presenter: 'Supply Chain Director',
     clause_description: 'Supplier scorecards, incoming inspection rejection rate, and RMA tracking.'
@@ -136,8 +136,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-d',
     clause: '9.3.2.d', 
     topic: 'Adequacy of resources (Personnel, Tooling, Infrastructure)', 
-    status: 'CONFORMING', 
-    notes: 'Approved investment for second automated optical CMM fixture and QA technician training.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 20,
     presenter: 'COO / Plant Mgr',
     clause_description: 'Personnel, equipment, software, gages, and facility readiness.'
@@ -146,8 +146,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-e',
     clause: '9.3.2.e', 
     topic: 'Effectiveness of actions taken to address risks & opportunities', 
-    status: 'CONFORMING', 
-    notes: 'Clause 6.1 risk register reviewed: evaluated FMEA risk priority numbers and mitigation action status.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 20,
     presenter: 'Risk / Engineering Lead',
     clause_description: 'Risk assessment, mitigation effectiveness, and positive opportunities exploitation.'
@@ -156,8 +156,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-2-f',
     clause: '9.3.2.f', 
     topic: 'Opportunities for continuous improvement (Kaizen / CI)', 
-    status: 'EXCELLENT', 
-    notes: 'Reviewed active Kaizen proposals and projected cost savings across CNC turning and setup reduction.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 15,
     presenter: 'Continuous Improvement Lead',
     clause_description: 'Process optimization, poka-yoke error-proofing, and scrap reduction initiatives.'
@@ -166,8 +166,8 @@ export const DEFAULT_ISO_AGENDA_ITEMS: ManagementReviewInput[] = [
     id: 'clause-9-3-3',
     clause: '9.3.3', 
     topic: 'Management Review Outputs & Strategic Directives', 
-    status: 'CONFORMING', 
-    notes: 'Summary of top management decisions on QMS suitability, policy alignment, and assigned action directives.',
+    status: 'PLANNED', 
+    notes: '',
     allotted_time_minutes: 20,
     presenter: 'Executive Facilitator',
     clause_description: 'Mandatory ISO 9001:2015 outputs regarding QMS changes, resource allocations, and improvements.'
@@ -194,7 +194,7 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
   const [isCloseActionModalOpen, setIsCloseActionModalOpen] = useState(false);
   const [selectedActionToClose, setSelectedActionToClose] = useState<ManagementReviewAction | null>(null);
   const [closureEvidence, setClosureEvidence] = useState('');
-  const [closureVerifier, setClosureVerifier] = useState('Sarah Jenkins (QA VP)');
+  const [closureVerifier, setClosureVerifier] = useState('');
 
   // Drilldown modal states for tie-ins
   const [isAuditTieInModalOpen, setIsAuditTieInModalOpen] = useState(false);
@@ -211,7 +211,7 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
     likelihood: 3,
     mitigation_plan: '',
     status: 'OPEN',
-    owner: 'David Chen',
+    owner: '',
     clause_target: '6.1',
   });
 
@@ -231,16 +231,16 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
     title: `2026 Q${Math.min(4, Math.floor(reviews.length + 1))} Executive Quality Management Review`,
     review_period: `Q${Math.min(4, Math.floor(reviews.length + 1))} 2026`,
     meeting_date: new Date().toISOString().slice(0, 10),
-    facilitator: 'Sarah Jenkins (QA VP)',
-    attendees: ['John Doe (COO)', 'Sarah Jenkins (QA VP)', 'Marcus Vance (VP Eng)', 'Elena Rostova (Plant Mgr)', 'David Chen (Sr QE)'],
-    status: 'CONDUCTED',
-    summary_notes: 'Reviewed QMS suitability, resource adequacy, and First Article inspection yield. Approved next-generation CMM fixture acquisition.',
+    facilitator: '',
+    attendees: [],
+    status: 'SCHEDULED',
+    summary_notes: '',
   }));
 
   // New Action Form State
   const [newAction, setNewAction] = useState<Partial<ManagementReviewAction>>(() => ({
     action_description: '',
-    owner: 'David Chen',
+    owner: '',
     department: 'Quality Assurance',
     due_date: new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10),
     priority: 'MEDIUM',
@@ -295,7 +295,7 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
     setIsAddActionModalOpen(false);
     setNewAction({
       action_description: '',
-      owner: 'David Chen',
+      owner: '',
       department: 'Quality Assurance',
       due_date: new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10),
       priority: 'MEDIUM',
@@ -396,7 +396,7 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
       likelihood: 3,
       mitigation_plan: '',
       status: 'OPEN',
-      owner: 'David Chen',
+      owner: '',
       clause_target: '6.1',
     });
   };
@@ -894,7 +894,22 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
           </div>
         </div>
       ) : (
-        <div className="text-center py-12 text-slate-500">No Management Review sessions logged yet.</div>
+        <div className="bg-slate-900/60 border border-dashed border-slate-800 rounded-xl p-12 text-center">
+          <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+          <h3 className="text-base font-semibold text-slate-300">No Management Reviews Logged</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+            ISO 9001:2015 Clause 9.3 requires executive management to evaluate the suitability, adequacy, and effectiveness of the QMS at planned intervals.
+          </p>
+          <button
+            onClick={() => {
+              setSetupAgendaItems(DEFAULT_ISO_AGENDA_ITEMS);
+              setIsAddReviewModalOpen(true);
+            }}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-emerald-500/20 transition-all inline-flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" /> Setup First Management Review
+          </button>
+        </div>
       )}
 
       {/* Modal: Setup Review Meeting & Build Agenda */}

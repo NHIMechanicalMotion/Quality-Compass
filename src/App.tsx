@@ -131,14 +131,14 @@ export function App() {
 
   // China QC Approval Record
   const [chinaApproval, setChinaApproval] = useState<ChinaApprovalRecord>({
-    inspectorName: 'Zhang Wei (张伟)',
-    inspectorNameZh: '张伟',
-    inspectionDate: '2026-09-03',
-    facilityLocation: 'Suzhou Precision Plant / 苏州精密生产线',
-    qaManagerName: 'Li Ming (李明)',
-    approvalDate: '2026-09-03',
-    decision: 'APPROVED',
-    decisionNotes: 'All critical dimensions verified with CMM and optical comparator. First article approved for mass production.',
+    inspectorName: '',
+    inspectorNameZh: '',
+    inspectionDate: '',
+    facilityLocation: '',
+    qaManagerName: '',
+    approvalDate: '',
+    decision: 'PENDING',
+    decisionNotes: '',
     correctiveActionRequired: false,
   });
 
@@ -175,14 +175,10 @@ export function App() {
         b.rawCallout
       );
 
-      const mockOffset1 = (Math.random() * 0.4 - 0.2) * (b.upperTol || 0.05);
-      const mockOffset2 = (Math.random() * 0.4 - 0.2) * (b.upperTol || 0.05);
-      const mockOffset3 = (Math.random() * 0.4 - 0.2) * (b.upperTol || 0.05);
-
       const measurements = {
-        sample1: Math.round((b.nominal + mockOffset1) * 1000) / 1000,
-        sample2: Math.round((b.nominal + mockOffset2) * 1000) / 1000,
-        sample3: Math.round((b.nominal + mockOffset3) * 1000) / 1000,
+        sample1: undefined,
+        sample2: undefined,
+        sample3: undefined,
         sample4: undefined,
         sample5: undefined,
       };

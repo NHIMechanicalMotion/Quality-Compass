@@ -28,19 +28,13 @@ interface Props {
 
 const DEFAULT_CAPACITY_DATA: CapacityAnalysisData = {
   constraint_type: 'MACHINE',
-  constraint_description: 'OP 30: 5-Axis Pinion Bore CNC Milling (Makino A61nx)',
-  num_constraints: 2,
-  shifts_per_day: 2,
-  hours_per_shift: 7.5,
-  daily_demand: 420,
-  days_in_sample: 5,
-  daily_logs: [
-    { day_no: 1, date: '2026-03-02', workers: 2, hours_worked: 15.0, downtime_hours: 0.6, overtime_hours: 0.0, units_produced: 452, scrap_units: 4 },
-    { day_no: 2, date: '2026-03-03', workers: 2, hours_worked: 15.0, downtime_hours: 0.4, overtime_hours: 0.0, units_produced: 460, scrap_units: 3 },
-    { day_no: 3, date: '2026-03-04', workers: 2, hours_worked: 15.0, downtime_hours: 0.8, overtime_hours: 0.0, units_produced: 448, scrap_units: 5 },
-    { day_no: 4, date: '2026-03-05', workers: 2, hours_worked: 15.0, downtime_hours: 0.5, overtime_hours: 0.0, units_produced: 455, scrap_units: 4 },
-    { day_no: 5, date: '2026-03-06', workers: 2, hours_worked: 15.0, downtime_hours: 0.3, overtime_hours: 0.0, units_produced: 468, scrap_units: 2 },
-  ],
+  constraint_description: '',
+  num_constraints: 1,
+  shifts_per_day: 1,
+  hours_per_shift: 8.0,
+  daily_demand: 0,
+  days_in_sample: 0,
+  daily_logs: [],
 };
 
 export const PpapCapacityAnalysis: React.FC<Props> = ({
@@ -127,17 +121,17 @@ export const PpapCapacityAnalysis: React.FC<Props> = ({
       : demonstratedCapacityPerDay;
 
   // % of Rated Capacity Used = Daily Demand / Rated Capacity
-  const dailyDemand = Number(capacity.daily_demand) || 420;
+  const dailyDemand = Number(capacity.daily_demand) || 0;
   const capacityUsedPct =
     ratedCapacityPerDay > 0 ? Math.round((dailyDemand / ratedCapacityPerDay) * 1000) / 10 : 0;
 
   // AIAG Decision Verdict:
-  // < 85%: GOOD
-  // 85% - 90%: Potential Problem
-  // > 90%: NO / Insufficient Capacity
-  let verdict: 'GOOD' | 'POTENTIAL_PROBLEM' | 'INSUFFICIENT' = 'GOOD';
-  if (capacityUsedPct > 90) verdict = 'INSUFFICIENT';
-  else if (capacityUsedPct >= 85) verdict = 'POTENTIAL_PROBLEM';
+  let verdict: 'NOT_EVALUATED' | 'GOOD' | 'POTENTIAL_PROBLEM' | 'INSUFFICIENT' = 'NOT_EVALUATED';
+  if (daysCount > 0 && ratedCapacityPerDay > 0 && dailyDemand > 0) {
+    if (capacityUsedPct > 90) verdict = 'INSUFFICIENT';
+    else if (capacityUsedPct >= 85) verdict = 'POTENTIAL_PROBLEM';
+    else verdict = 'GOOD';
+  }
 
   const handleUpdateField = <K extends keyof CapacityAnalysisData>(
     field: K,
@@ -413,7 +407,12 @@ export const PpapCapacityAnalysis: React.FC<Props> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 shadow-sm flex flex-col justify-between">
           <span className="text-[11px] font-medium text-slate-400 block">Sufficient Capacity?</span>
           <div className="flex items-center gap-2 mt-1">
-            {verdict === 'GOOD' ? (
+            {verdict === 'NOT_EVALUATED' ? (
+              <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-300 bg-slate-800 border border-slate-700 px-2.5 py-1 rounded-md">
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                PENDING DATA
+              </span>
+            ) : verdict === 'GOOD' ? (
               <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 px-2.5 py-1 rounded-md">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                 GOOD (&lt;85%)
@@ -608,8 +607,15 @@ export const PpapCapacityAnalysis: React.FC<Props> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-mono">
-              {capacity.daily_logs.map((log, idx) => {
-                const netUnits = (Number(log.units_produced) || 0) - (Number(log.scrap_units) || 0);
+              {capacity.daily_logs.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="p-8 text-center text-slate-500 font-sans text-xs">
+                    No production run days recorded. Click &quot;+ Add Day&quot; or &quot;Auto-Populate Study&quot; above to log Run @ Rate production.
+                  </td>
+                </tr>
+              ) : (
+                capacity.daily_logs.map((log, idx) => {
+                  const netUnits = (Number(log.units_produced) || 0) - (Number(log.scrap_units) || 0);
                 const hrs = Number(log.hours_worked) || 0;
                 const pcsPerHour = hrs > 0 ? (netUnits / hrs).toFixed(1) : '0';
                 const dayScrapPct =
@@ -741,7 +747,7 @@ export const PpapCapacityAnalysis: React.FC<Props> = ({
                     </td>
                   </tr>
                 );
-              })}
+              }))}
             </tbody>
             <tfoot>
               <tr className="bg-slate-950 text-white font-bold border-t border-slate-700 text-xs">

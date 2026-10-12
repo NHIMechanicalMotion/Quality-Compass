@@ -42,8 +42,8 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
   // Calculations
   const completedAudits = audits.filter(a => a.status === 'COMPLETED');
   const avgAuditScore = completedAudits.length > 0 
-    ? Math.round(completedAudits.reduce((sum, a) => sum + (a.score || 95), 0) / completedAudits.length)
-    : 95;
+    ? Math.round(completedAudits.reduce((sum, a) => sum + (a.score || 0), 0) / completedAudits.length)
+    : 0;
 
   const openCapas = capas.filter(c => c.status !== 'CLOSED');
   const criticalCapas = capas.filter(c => c.severity === 'CRITICAL' || c.severity === 'MAJOR');
@@ -122,9 +122,9 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-white">{avgAuditScore}%</span>
-            <span className="text-xs font-medium text-emerald-400 flex items-center">
-              <ArrowUpRight className="w-3.5 h-3.5" /> +2.4% vs 2025
+            <span className="text-3xl font-bold text-white">{completedAudits.length > 0 ? `${avgAuditScore}%` : '—'}</span>
+            <span className="text-xs font-medium text-slate-400 flex items-center">
+              {completedAudits.length > 0 ? `${completedAudits.length} Closed` : 'No Audits Closed'}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-2">
@@ -147,16 +147,26 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-xl font-bold text-white truncate">{latestReview?.review_period || 'Q1 2026'}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-medium">
-              {latestReview?.status || 'COMPLETED'}
+            <span className="text-xl font-bold text-white truncate">{latestReview?.review_period || 'None Scheduled'}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+              latestReview?.status === 'COMPLETED'
+                ? 'bg-emerald-500/20 text-emerald-400'
+                : 'bg-slate-800 text-slate-400'
+            }`}>
+              {latestReview?.status || 'PENDING'}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-2">
-            {latestReview?.inputs_evaluated?.length || 10} ISO 9.3 Clauses Evaluated
+            {latestReview?.inputs_evaluated?.length || 0} ISO 9.3 Clauses Evaluated
           </p>
-          <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium mt-3">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Quality Policy & Objectives Aligned
+          <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium mt-3">
+            {latestReview ? (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Quality Policy & Objectives Aligned
+              </>
+            ) : (
+              <span>No management review on record</span>
+            )}
           </div>
         </div>
 
@@ -181,8 +191,8 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
             ${totalCiSavings.toLocaleString()} Annualized Kaizen Savings
           </p>
           <div className="flex items-center gap-1 text-xs text-slate-300 mt-3">
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            Avg MTTR: <strong className="text-white">18.2 Days</strong> (Target &lt; 30d)
+            <span className={`w-2 h-2 rounded-full ${openCapas.length > 0 ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+            Active Root Cause: <strong className="text-white">{openCapas.length > 0 ? `${openCapas.length} in 8D Cycle` : 'Zero Open Non-Conformances'}</strong>
           </div>
         </div>
 
@@ -198,13 +208,13 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-white font-mono">{odooSummary.overall_ppm || 128}</span>
+            <span className="text-3xl font-bold text-white font-mono">{odooSummary.overall_ppm ?? 0}</span>
             <span className="text-xs font-medium text-emerald-400 font-mono">
-              PPM ({odooSummary.fpy_percentage || 99.87}% FPY)
+              PPM ({(odooSummary.fpy_percentage ?? 100.0).toFixed(1)}% FPY)
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-2">
-            Scrap: ${odooSummary.scrap_ytd.toLocaleString()} • Target &lt; {odooSummary.target_ppm || 150} PPM
+            Scrap: ${(odooSummary.scrap_ytd ?? 0).toLocaleString()} • Target &lt; {odooSummary.target_ppm ?? 150} PPM
           </p>
           <div className="flex items-center justify-between text-xs text-purple-300 mt-3 pt-1 border-t border-slate-800">
             <span>Status: <strong>{odooSummary.connection_status}</strong></span>
@@ -228,34 +238,30 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
               </p>
             </div>
             <span className="text-xs px-2.5 py-1 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
-              Registrar Readiness: 96%
+              {activeDocs.length > 0 || completedAudits.length > 0
+                ? `${Math.min(100, Math.round((activeDocs.length * 10) + (completedAudits.length * 20)))}% Readiness`
+                : 'Baseline Initialized'}
             </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
             {[
-              { clause: 'Clause 4: Context of Organization', score: 98, status: 'Audited & Aligned', docs: 'QM-001' },
-              { clause: 'Clause 5: Leadership & Policy', score: 100, status: 'Executive Signed', docs: 'QM-001, MR-2026' },
-              { clause: 'Clause 6: Planning & Risk (FMEA)', score: 92, status: 'FMEA Matrix Updated', docs: 'SOP-QA-012' },
-              { clause: 'Clause 7: Support & Calibration', score: 94, status: '1 Minor NC Closed', docs: 'WI-MFG-045' },
-              { clause: 'Clause 8: Operation & First Article', score: 97, status: 'Quality Compass CAD FAI', docs: 'SOP-ENG-004' },
-              { clause: 'Clause 9: Performance & Audit', score: 96, status: 'Q1 Review Completed', docs: 'MR-2026-Q1' },
-              { clause: 'Clause 10: Improvement & 8D', score: 93, status: '2 Active CAPAs in PCA', docs: 'CAPA-001' },
-              { clause: 'Clause 7.5: Documented Information', score: 100, status: 'Supabase DCS Active', docs: 'DCS Master' },
+              { clause: 'Clause 4: Context of Organization', status: activeDocs.some(d => d.doc_number.includes('QM') || d.title.toLowerCase().includes('context')) ? 'Conforming' : 'Baseline Active', docs: activeDocs.filter(d => d.doc_number.includes('QM')).map(d => d.doc_number).join(', ') || 'QM-001' },
+              { clause: 'Clause 5: Leadership & Policy', status: latestReview ? 'Executive Reviewed' : 'Pending Review', docs: latestReview ? latestReview.review_code : 'QM Policy' },
+              { clause: 'Clause 6: Planning & Risk (FMEA)', status: 'Risk Register Standard', docs: 'APQP FMEA' },
+              { clause: 'Clause 7: Support & Calibration', status: 'Gage Metrology System', docs: 'Metrology' },
+              { clause: 'Clause 8: Operation & First Article', status: 'Quality Compass CAD FAI', docs: 'ASME/ISO CAD' },
+              { clause: 'Clause 9: Performance & Audit', status: completedAudits.length > 0 ? `${completedAudits.length} Audits Completed` : 'Audit Plan Active', docs: completedAudits.length > 0 ? completedAudits[0].audit_number : 'Internal Audits' },
+              { clause: 'Clause 10: Improvement & 8D', status: openCapas.length > 0 ? `${openCapas.length} Active 8D Actions` : 'Zero Escapes', docs: openCapas.length > 0 ? openCapas[0].capa_number : '8D CAPA' },
+              { clause: 'Clause 7.5: Documented Information', status: `${activeDocs.length} Controlled PDFs`, docs: 'DCS Master' },
             ].map((item, idx) => (
               <div key={idx} className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-3 hover:border-slate-700 transition-all">
                 <div className="flex items-center justify-between text-xs mb-1.5">
                   <span className="font-semibold text-slate-200">{item.clause}</span>
-                  <span className="font-bold text-emerald-400">{item.score}%</span>
+                  <span className="font-bold text-blue-400 text-[11px]">{item.status}</span>
                 </div>
-                <div className="w-full bg-slate-800 rounded-full h-1.5 mb-2 overflow-hidden">
-                  <div 
-                    className="bg-gradient-to-r from-blue-500 to-emerald-400 h-full rounded-full" 
-                    style={{ width: `${item.score}%` }}
-                  ></div>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  <span>{item.status}</span>
+                <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2">
+                  <span className="text-slate-500">Document / Ref:</span>
                   <span className="text-blue-400 font-mono text-[10px] bg-blue-500/10 px-1.5 py-0.5 rounded">
                     {item.docs}
                   </span>
@@ -308,18 +314,35 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
               </div>
 
               {/* Odoo ERP Alert Preview */}
-              <div className="p-3 rounded-lg bg-purple-950/20 border border-purple-800/40">
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="font-semibold text-purple-200 flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 text-purple-400" />
-                    Odoo ERP Shopfloor Alert
-                  </span>
-                  <span className="text-amber-400 font-bold text-[10px]">LOT-2026-03-PL98</span>
+              {odooSummary.quality_records && odooSummary.quality_records.length > 0 ? (
+                <div className="p-3 rounded-lg bg-purple-950/20 border border-purple-800/40">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-semibold text-purple-200 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-purple-400" />
+                      Odoo ERP Shopfloor Alert
+                    </span>
+                    <span className="text-amber-400 font-bold text-[10px]">
+                      {odooSummary.quality_records[0].alert_code || odooSummary.quality_records[0].lot_number}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    {odooSummary.quality_records[0].defect_type || odooSummary.quality_records[0].product_name}
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-300">
-                  Bore runout on 25mm pulley quarantined in Odoo. Linked to active 8D CAPA-2026-001.
-                </p>
-              </div>
+              ) : (
+                <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-slate-500" />
+                      Odoo ERP Shopfloor Alerts
+                    </span>
+                    <span className="text-slate-500 text-[10px]">0 Active</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    No open shopfloor quality alerts synced from Odoo.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

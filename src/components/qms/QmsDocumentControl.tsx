@@ -69,22 +69,22 @@ export const QmsDocumentControl: React.FC<Props> = ({
 
   // Promote Working Document Modal
   const [promotingDoc, setPromotingDoc] = useState<WorkingDocument | null>(null);
-  const [approverName, setApproverName] = useState('Sarah Jenkins (QA VP)');
-  const [approvalNotes, setApprovalNotes] = useState('Verified compliant with ISO 9001:2015 Clause 7.5. Controlled copy released.');
+  const [approverName, setApproverName] = useState('');
+  const [approvalNotes, setApprovalNotes] = useState('');
 
   // Tier 2 & 3 local states
   const [vaultItems, setVaultItems] = useState<SourceVaultItem[]>(INITIAL_VAULT_ITEMS);
   const [workingDocs, setWorkingDocs] = useState<WorkingDocument[]>(INITIAL_WORKING_DOCS);
   const [isAddWorkingDocModalOpen, setIsAddWorkingDocModalOpen] = useState(false);
   const [newWorkingDoc, setNewWorkingDoc] = useState<Partial<WorkingDocument>>({
-    doc_number: 'SOP-QA-016',
+    doc_number: '',
     title: '',
     target_revision: 'Rev A',
     category: 'SOP',
     department: 'Quality Assurance',
-    author: 'David Chen',
+    author: '',
     source_file_name: '',
-    change_summary: 'Initial draft.',
+    change_summary: '',
   });
 
   // Filter logic for Tier 1 Controlled Documents
