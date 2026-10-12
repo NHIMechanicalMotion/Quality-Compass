@@ -16,6 +16,8 @@ import {
   Building2,
   Wrench,
   ChevronDown,
+  ChevronUp,
+  Menu,
 } from 'lucide-react';
 import type { StandardType, AuditReport } from '../types/cad';
 import type { PartFamilyProfile } from '../types/templates';
@@ -74,6 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeLanguage,
 }) => {
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
+  const [isMobileCollapsed, setIsMobileCollapsed] = useState(false);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -90,24 +93,50 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="bg-[#07172C] border-b border-[#132E58] text-white sticky top-0 z-40 px-4 py-2 shadow-xl">
       <div className="max-w-[1750px] mx-auto flex flex-wrap items-center justify-between gap-3">
         {/* Brand & Identity: NHI Mechanical Motion LLC */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#0B2545] to-[#132E58] flex items-center justify-center shadow-lg shadow-[#81C341]/10 border border-[#81C341]/40 shrink-0">
-            <Compass className="w-6 h-6 text-[#81C341] animate-spin-slow" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs uppercase font-extrabold tracking-widest text-blue-400 font-mono">
-                NHI Mechanical Motion LLC
-              </span>
-              <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-[#81C341]/15 text-[#81C341] border border-[#81C341]/40 tracking-wider">
-                Quality Compass
-              </span>
+        <div className="flex items-center justify-between w-full lg:w-auto">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#0B2545] to-[#132E58] flex items-center justify-center shadow-lg shadow-[#81C341]/10 border border-[#81C341]/40 shrink-0">
+              <Compass className="w-6 h-6 text-[#81C341] animate-spin-slow" />
             </div>
-            <h1 className="text-sm sm:text-base font-bold tracking-tight text-white flex items-center gap-2">
-              <span>APQP / PPAP &amp; Quality Engineering</span>
-            </h1>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs uppercase font-extrabold tracking-widest text-blue-400 font-mono">
+                  NHI Mechanical Motion LLC
+                </span>
+                <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-[#81C341]/15 text-[#81C341] border border-[#81C341]/40 tracking-wider">
+                  Quality Compass
+                </span>
+              </div>
+              <h1 className="text-sm sm:text-base font-bold tracking-tight text-white flex items-center gap-2">
+                <span>APQP / PPAP &amp; Quality Engineering</span>
+              </h1>
+            </div>
           </div>
+
+          {/* Mobile Collapse Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setIsMobileCollapsed(prev => !prev)}
+            className="lg:hidden min-h-[44px] min-w-[44px] px-3 py-1.5 bg-[#0B2545] hover:bg-[#132E58] border border-[#132E58] rounded-xl text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            title={isMobileCollapsed ? 'Show navigation controls' : 'Collapse header navigation'}
+          >
+            {isMobileCollapsed ? (
+              <>
+                <Menu className="w-4 h-4 text-[#81C341]" />
+                <span>Menu</span>
+                <ChevronDown className="w-3.5 h-3.5 text-[#81C341]" />
+              </>
+            ) : (
+              <>
+                <span>Collapse</span>
+                <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+              </>
+            )}
+          </button>
         </div>
+
+        {/* Collapsible Mobile Wrapper for Navigation & Toolbars */}
+        <div className={`w-full lg:w-auto flex-wrap lg:flex items-center gap-3 ${isMobileCollapsed ? 'hidden lg:flex' : 'flex'}`}>
 
         {/* Operating Company Scope Selector (NHIMM Combined, NHI, Terre Products, Mantis, Makers) */}
         {onSelectCompany && (
@@ -677,6 +706,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
         )}
+        </div>
       </div>
     </header>
   );
