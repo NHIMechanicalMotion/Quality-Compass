@@ -89,22 +89,22 @@ Defined in `src/data/operatingCompanies.ts` and rendered via `src/components/com
 In `src/components/Header.tsx`, the company scope selector allows users to toggle between the consolidated enterprise view (`ALL`) and individual operating sub-companies.
 
 ### Filtering Rules Across Views:
-1. **Pillar 1 (CAD & First Article):**
-   - When a specific company is selected, the drawing picker prioritizes drawing templates and part families belonging to that company (e.g., Selecting `MANTIS` defaults to conveyor drum pulleys and shaft lagging drawings).
-2. **Pillar 2 (QMS Executive OS):**
+1. **Pillar 1 (QMS Executive OS):**
    - **Executive Overview:** Filters open CAPAs, audit scores, and PPM metrics by the selected operating entity.
    - **Audits Manager:** Filters internal audits and customer audits by facility division.
    - **Quality Metrics:** Isolates Odoo scrap, FPY %, and work center performance to the selected division.
    - **Document Control:** Filters controlled procedures and work instructions by operating entity.
-3. **Pillar 3 (APQP & PPAP Launch Hub):**
+2. **Pillar 2 (APQP & PPAP Launch Hub):**
    - APQP project cards are tagged with the operating company short code. Selecting a company filters the active launch pipeline to projects commissioned by that division.
+3. **Tools Category (CAD & First Article Inspection):**
+   - When a specific company is selected, the drawing picker prioritizes drawing templates and part families belonging to that company (e.g., Selecting `MANTIS` defaults to conveyor drum pulleys and shaft lagging drawings).
 
 ---
 
 ## 4. Design System & Typography
 
 - **Dark Theme Foundation:** Backgrounds use `#07172C` (Midnight Deep Navy) and card surfaces use `#0B2545` / `#132E58`.
-- **Accent Colors:** Electric lime (`#81C341`) is used for primary action buttons, active tabs, and passing status indicators. Cyan (`#38bdf8`) is used for Pillar 2 navigation and informational callouts.
+- **Accent Colors:** Cyan (`#38bdf8`) is used for Pillar 1 (QMS Executive) navigation and badges. Electric lime (`#81C341`) is used for Pillar 2 (APQP & PPAP Hub) active tabs and passing indicators. Blue (`#60a5fa`) is used for the Tools Category (CAD & First Article Inspection).
 - **Font Stack:** Clean sans-serif system stack (`Inter`, `ui-sans-serif`, `system-ui`) paired with monospace font (`ui-monospace`, `SFMono-Regular`, `Menlo`) for part numbers, drawing codes, tolerances, and GD&T symbols.
 - **Status Color Semantics:**
   - Pass / Conforming / Approved: `emerald-400` / `lime-400`

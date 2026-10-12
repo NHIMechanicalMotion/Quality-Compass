@@ -154,7 +154,7 @@ export const PpapDimensionalResults: React.FC<Props> = ({
 
   const handleImportFromCad = () => {
     if (!availableBalloons || availableBalloons.length === 0) {
-      alert('No CAD ballooned dimensions currently loaded in Pillar 1. Switch to CAD & First Article mode to load a blueprint.');
+      alert('No CAD ballooned dimensions currently loaded. Switch to Tools > CAD & First Article mode to load a blueprint.');
       return;
     }
 
@@ -268,7 +268,7 @@ export const PpapDimensionalResults: React.FC<Props> = ({
           {availableBalloons && availableBalloons.length > 0 && (
             <ActionTooltip
               title="Import from CAD Canvas"
-              description="Transfers all OCR-ballooned dimensions and tolerances directly from Pillar 1 CAD Canvas."
+              description="Transfers all OCR-ballooned dimensions and tolerances directly from the CAD & First Article Inspection tool."
               position="bottom"
               badge="CAD Sync"
             >

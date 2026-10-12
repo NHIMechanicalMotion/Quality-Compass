@@ -13,10 +13,10 @@ flowchart TD
     subgraph Browser ["Client Runtime (Browser SPA)"]
         UI_HDR["Header.tsx\nPillar Router & Company Selector"]
         
-        subgraph Pillars ["The Three Core Pillars"]
-            P1["Pillar 1: CAD & First Article\n(DrawingCanvas, InspectionTable, OCR)"]
-            P2["Pillar 2: QMS Executive OS\n(Audits, Clause 9.3 MRM, CAPA 8D, Doc Control)"]
-            P3["Pillar 3: APQP & PPAP Launch Hub\n(18 AIAG Elements, PSW, Control Plans, FMEA)"]
+        subgraph Pillars ["Operational Pillars & Engineering Tools"]
+            P1["Pillar 1: QMS Executive OS\n(Audits, Clause 9.3 MRM, CAPA 8D, Doc Control)"]
+            P2["Pillar 2: APQP & PPAP Launch Hub\n(18 AIAG Elements, PSW, Control Plans, FMEA)"]
+            T1["Tools: CAD & First Article\n(DrawingCanvas, InspectionTable, OCR)"]
         end
 
         subgraph CoreEngines ["Client Metrology & Document Engines"]
@@ -42,18 +42,18 @@ flowchart TD
 
     UI_HDR --> P1
     UI_HDR --> P2
-    UI_HDR --> P3
+    UI_HDR --> T1
 
-    P1 <--> METRO
-    P1 <--> OCR_ENG
-    P2 <--> PPM_ENG
-    P3 <--> EXCEL_ENG
+    P1 <--> PPM_ENG
+    P2 <--> EXCEL_ENG
+    T1 <--> METRO
+    T1 <--> OCR_ENG
 
-    P1 <--> DB_DWG
-    P2 <--> DB_QMS
-    P2 <--> DB_CAPA
-    P3 <--> DB_APQP
-    P2 -.-> |Read-Only Telemetry| SupabaseB
+    T1 <--> DB_DWG
+    P1 <--> DB_QMS
+    P1 <--> DB_CAPA
+    P2 <--> DB_APQP
+    P1 -.-> |Read-Only Telemetry| SupabaseB
 ```
 
 ---

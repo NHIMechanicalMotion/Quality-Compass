@@ -8,10 +8,10 @@
 
 **Quality Compass** is the unified quality engineering, manufacturing compliance, and operational governance platform engineered for **NHI Mechanical Motion LLC** and its operating sub-companies (**NHI**, **Terre Products**, **Mantis Conveyor Products**, and **Makers Automation**).
 
-Built to bridge CAD blueprint engineering with shopfloor quality execution and executive management oversight, Quality Compass integrates three foundational pillars:
-1. **Pillar 1 — CAD & First Article Inspection (FAI):** High-precision drawing canvas with vector PDF/DXF ingestion, OCR dimension extraction, ASME Y14.5 / ISO 1101 geometric dimensioning and tolerancing (GD&T) audit engine, automatic balloon numbering, China QC team bilingual sign-off, and FAI report exports.
-2. **Pillar 2 — QMS Executive Operating System:** Enterprise Quality Management System delivering audit lifecycle tracking (Internal, Registrar TÜV, Customer Tesla, Regulatory), ISO 9001:2015 Clause 9.3 Management Review Cockpit with live data tie-ins, 8D CAPA and Kaizen Continuous Improvement tracking, live Odoo ERP quality telemetry (PPM & First Pass Yield), and a consensus-based 3-Tier Document Control System.
-3. **Pillar 3 — APQP & PPAP Launch Hub:** End-to-end New Product Introduction (NPI) workflow aligned to AIAG 4th Edition and VDA standards, managing all 18 PPAP elements, Part Submission Warrants (PSW), DFMEA / PFMEA risk assessments, Control Plans, Gage R&R (MSA), Run-at-Rate capacity verification, and native AIAG Excel workbook generation via ExcelJS.
+Built to bridge CAD blueprint engineering with shopfloor quality execution and executive management oversight, Quality Compass integrates two foundational operational pillars and an engineering metrology tools category:
+1. **Pillar 1 — QMS Executive Operating System:** Enterprise Quality Management System delivering audit lifecycle tracking (Internal, Registrar TÜV, Customer Tesla, Regulatory), ISO 9001:2015 Clause 9.3 Management Review Cockpit with live data tie-ins, 8D CAPA and Kaizen Continuous Improvement tracking, live Odoo ERP quality telemetry (PPM & First Pass Yield), and a consensus-based 3-Tier Document Control System.
+2. **Pillar 2 — APQP & PPAP Launch Hub:** End-to-end New Product Introduction (NPI) workflow aligned to AIAG 4th Edition and VDA standards, managing all 18 PPAP elements, Part Submission Warrants (PSW), DFMEA / PFMEA risk assessments, Control Plans, Gage R&R (MSA), Run-at-Rate capacity verification, and native AIAG Excel workbook generation via ExcelJS.
+3. **Tools Category — CAD & First Article Inspection (FAI):** High-precision drawing canvas with vector PDF/DXF ingestion, OCR dimension extraction, ASME Y14.5 / ISO 1101 geometric dimensioning and tolerancing (GD&T) audit engine, automatic balloon numbering, China QC team bilingual sign-off, and FAI report exports.
 
 ---
 
@@ -43,25 +43,17 @@ NHI Mechanical Motion LLC operates four specialized manufacturing businesses fro
 
 ---
 
-## 3. The Three Core Pillars
+## 3. Operational Pillars & Engineering Tools
 
-### Pillar 1: CAD Blueprint & First Article Inspection (`INSPECTION`)
-- **Interactive Inspection Canvas:** Pan, zoom, and inspect vector CAD prints (DXF, vector PDF, and high-resolution raster drawings).
-- **Auto-Ballooning & OCR Engine:** Automatic extraction of nominal dimensions, bilateral/unilateral tolerances, and GD&T feature control frames using Tesseract.js OCR and PDF text stream analysis.
-- **Standards Audit Engine:** Automated compliance verification against ASME Y14.5M-1994, ASME Y14.5-2018, ISO 1101, and ISO 2768 general tolerance tables.
-- **Measurement Tool Recommender:** Intelligent rule-based selection of appropriate metrology instruments (CMM, optical comparator, height gage, micrometer, calipers) based on feature tolerance width.
-- **China QC Inspection Workflow:** Dedicated bilingual English/Chinese modal for overseas inspection sign-off, dispositioning, and inspector authorization.
-- **AS9102 / AIAG Inspection Export:** Instant generation of formatted Excel First Article Inspection workbooks and PDF inspection packages.
-
-### Pillar 2: Enterprise QMS Executive Operating System (`QMS_DASHBOARD`)
+### Pillar 1: Enterprise QMS Executive Operating System (`QMS_DASHBOARD`)
 - **Executive Cockpit:** Real-time visibility into open audits, high-risk findings, active 8Ds, PPM trends, and controlled document review schedules.
 - **Audits Manager:** Lifecycle management for Internal Audits, External Registrar (TÜV SÜD ISO 9001), Customer Audits (Tesla, John Deere, Cat), and Regulatory inspections.
-- **ISO 9001:2015 Clause 9.3 Management Review:** Standard 10-topic agenda builder with custom topic additions, automatic live tie-ins to audit findings, CAPA/8D non-conformances, live Odoo PPM metrics, and Clause 6.1 risk reviews.
+- **ISO 9001:2015 Clause 9.3 Management Review:** Standard 13-topic agenda builder with custom topic additions, automatic live tie-ins to audit findings, CAPA/8D non-conformances, live Odoo PPM metrics, and Clause 6.1 risk reviews.
 - **CAPA (8D) & Kaizen CI:** Full 8-Discipline problem-solving tracking (D1 Team through D8 Recognition) and employee continuous improvement suggestions with financial savings tracking.
 - **Live Quality Performance & PPM Engine:** Telemetry dashboard reporting Parts Per Million (PPM), First Pass Yield (FPY %), Work Center yield matrix, Defect Pareto analysis, and Odoo discrepancy logs.
 - **3-Tier Document Control System:** Consensus-based document management strictly separating Approved PDFs (controlled documents) from Native Source Files (Vault) and Working Drafts.
 
-### Pillar 3: APQP & PPAP Launch Hub (`APQP_PPAP`)
+### Pillar 2: APQP & PPAP Launch Hub (`APQP_PPAP`)
 - **AIAG 4th Edition / VDA 18-Element Matrix:** Phase-gated tracker for all 18 PPAP deliverables with completion status, customer requirements, and attachment linkages.
 - **5-Phase APQP Lifecycle:** Plan & Define, Product Design, Process Design, Product & Process Validation, and Feedback/Assessment.
 - **Part Submission Warrant (PSW - Form CFG-1001):** Interactive, printable AIAG-standard submission warrant with declaration checkboxes, customer approval signatures, and IMDS tracking.
@@ -69,6 +61,14 @@ NHI Mechanical Motion LLC operates four specialized manufacturing businesses fro
 - **FMEA Manager:** AIAG-VDA compliant Design FMEA and Process FMEA with Severity, Occurrence, Detection, and Risk Priority Number (RPN) calculations.
 - **Run-at-Rate & Capacity Analysis:** Verification of plant line speed, OEE, scrap allowance, and shift capacity against customer contracted demand.
 - **ExcelJS Workbook Generator:** Generates production-ready, fully styled multi-tab Excel workbooks based on official AIAG templates (`PPAP_Forms_Workbook_4th_Edition.xlsx`).
+
+### Tools Category: CAD Blueprint & First Article Inspection (`INSPECTION`)
+- **Interactive Inspection Canvas:** Pan, zoom, and inspect vector CAD prints (DXF, vector PDF, and high-resolution raster drawings).
+- **Auto-Ballooning & OCR Engine:** Automatic extraction of nominal dimensions, bilateral/unilateral tolerances, and GD&T feature control frames using Tesseract.js OCR and PDF text stream analysis.
+- **Standards Audit Engine:** Automated compliance verification against ASME Y14.5M-1994, ASME Y14.5-2018, ISO 1101, and ISO 2768 general tolerance tables.
+- **Measurement Tool Recommender:** Intelligent rule-based selection of appropriate metrology instruments (CMM, optical comparator, height gage, micrometer, calipers) based on feature tolerance width.
+- **China QC Inspection Workflow:** Dedicated bilingual English/Chinese modal for overseas inspection sign-off, dispositioning, and inspector authorization.
+- **AS9102 / AIAG Inspection Export:** Instant generation of formatted Excel First Article Inspection workbooks and PDF inspection packages.
 
 ---
 

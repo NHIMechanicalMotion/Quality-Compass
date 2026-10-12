@@ -66,8 +66,8 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" /> ISO 9001:2015 / IATF 16949 Compliant
               </span>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                Pillar 2: Executive QMS Operating System
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                Pillar 1: Executive QMS Operating System
               </span>
             </div>
             <h2 className="text-2xl font-bold text-white tracking-tight">

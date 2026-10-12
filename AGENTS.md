@@ -12,11 +12,11 @@ Before making any feature addition, bug fix, schema modification, or visual rest
 
 ## Core Inviolable Principles (Negative Constraints)
 
-1. **Do Not Invent Navigation Modes or Top-Level Tabs**:
-   The 3 core navigation modes are strictly defined in `src/components/Header.tsx` and routed in `src/App.tsx`:
-   - `INSPECTION`: CAD & First Article Inspection (Canvas, OCR, ballooning, ASME/ISO audit).
-   - `QMS_DASHBOARD`: QMS Executive Operating System (`OVERVIEW`, `AUDITS`, `MANAGEMENT_REVIEW`, `CAPA_CI`, `QUALITY_METRICS`, `DOCUMENT_CONTROL`, `ODOO_CONFIG`).
-   - `APQP_PPAP`: APQP & PPAP Launch Hub (Phases 1–5, 18 AIAG Elements, PSW, Control Plans, FMEA, Run-at-Rate).
+1. **System Hierarchy & Core Navigation Modes**:
+   The system hierarchy is organized into 2 core strategic pillars and an engineering/quality tools category, defined in `src/components/Header.tsx` and routed in `src/App.tsx`:
+   - **Pillar 1 (`QMS_DASHBOARD`)**: ISO 9001:2015 QMS Executive Operating System (`OVERVIEW`, `AUDITS`, `MANAGEMENT_REVIEW`, `CAPA_CI`, `QUALITY_METRICS`, `DOCUMENT_CONTROL`, `ODOO_CONFIG`).
+   - **Pillar 2 (`APQP_PPAP`)**: APQP & PPAP Launch Hub (Phases 1–5, 18 AIAG Elements, PSW, Control Plans, FMEA, Run-at-Rate).
+   - **Tools Category (`INSPECTION`)**: CAD & First Article Inspection Engine (Canvas, OCR, auto-ballooning, ASME/ISO GD&T audit, and template training).
 
 2. **Preserve the Multi-Company Operating Structure**:
    NHI Mechanical Motion LLC is the parent enterprise (`ALL`). All views must respect the 4 operating company partitions:

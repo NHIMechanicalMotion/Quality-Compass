@@ -23,11 +23,11 @@ The chapters describe why the system rules exist, the Supabase tables and React 
 
 Read in this sequence for an end-to-end understanding of the platform. For targeted bug fixes or feature updates, jump directly to the relevant domain chapter.
 
-1. [Architecture and Data Flow](architecture-and-data-flow.md) — 3-pillar UI structure, dual Supabase connections, and client-side offline fallbacks.
+1. [Architecture and Data Flow](architecture-and-data-flow.md) — UI structure, dual Supabase connections, and client-side offline fallbacks.
 2. [Companies, Branding & Design Standards](companies-and-branding.md) — NHIMM parent enterprise, the 4 operating companies, color hex codes, badges, and visual hierarchy.
-3. [Pillar 1: CAD & First Article Inspection](pillar1-cad-first-article.md) — Canvas/SVG viewer, vector DXF/PDF parsing, Tesseract OCR auto-ballooning, ASME/ISO standards audit, and China QC approvals.
-4. [Pillar 2: QMS Executive Operating System](pillar2-qms-os.md) — Executive cockpit, audit lifecycle, 8D CAPA, Kaizen CI, and quality telemetry.
-5. [Pillar 3: APQP & PPAP Launch Hub](pillar3-apqp-ppap-hub.md) — AIAG 4th Edition / VDA 18-element deliverables, PSW warrants, FMEAs, Control Plans, and ExcelJS workbook generation.
+3. [Pillar 1: QMS Executive Operating System](pillar2-qms-os.md) — Executive cockpit, audit lifecycle, 8D CAPA, Kaizen CI, and quality telemetry.
+4. [Pillar 2: APQP & PPAP Launch Hub](pillar3-apqp-ppap-hub.md) — AIAG 4th Edition / VDA 18-element deliverables, PSW warrants, FMEAs, Control Plans, and ExcelJS workbook generation.
+5. [Tools Category: CAD & First Article Inspection](pillar1-cad-first-article.md) — Canvas/SVG viewer, vector DXF/PDF parsing, Tesseract OCR auto-ballooning, ASME/ISO standards audit, and China QC approvals.
 6. [ISO 9001:2015 Clause 9.3 Management Review](iso-9001-mrm-architecture.md) — Dynamic agenda builder, live cross-system data tie-ins, action tracking, and closure verification.
 7. [Live Odoo Quality Telemetry & PPM Engine](odoo-quality-and-ppm.md) — PPM formula, First Pass Yield (FPY %), Work Center yield matrix, Defect Pareto analysis, and Odoo discrepancy logs.
 8. [3-Tier Document Control System](document-control-system.md) — Consensus model strictly isolating Approved PDFs (controlled) from the Source File Vault and Working Drafts.

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Compass, 
   FileSpreadsheet, 
@@ -14,6 +14,8 @@ import {
   GraduationCap,
   ShieldCheck,
   Building2,
+  Wrench,
+  ChevronDown,
 } from 'lucide-react';
 import type { StandardType, AuditReport } from '../types/cad';
 import type { PartFamilyProfile } from '../types/templates';
@@ -71,6 +73,19 @@ export const Header: React.FC<HeaderProps> = ({
   language,
   onChangeLanguage,
 }) => {
+  const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(event.target as Node)) {
+        setIsToolsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   return (
     <header className="bg-[#07172C] border-b border-[#132E58] text-white sticky top-0 z-40 px-4 py-2 shadow-xl">
       <div className="max-w-[1750px] mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -144,55 +159,134 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
-        {/* Pillar Switcher: Pillar 1 vs Pillar 2 vs Pillar 3 */}
+        {/* Pillar Switcher: Pillar 1 (QMS) | Pillar 2 (APQP/PPAP) | Tools Category (CAD & FAI) */}
         {onToggleViewMode && (
-          <div className="flex items-center bg-[#0B2545]/60 p-1 rounded-xl border border-[#132E58] shadow-inner">
-            <button
-              onClick={() => onToggleViewMode('INSPECTION')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeViewMode === 'INSPECTION'
-                  ? 'bg-[#132E58] text-white border border-blue-400/40 shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5 text-blue-400" />
-              <span>CAD & First Article</span>
-            </button>
-
+          <div className="flex items-center gap-1.5 bg-[#0B2545]/60 p-1 rounded-xl border border-[#132E58] shadow-inner">
+            {/* Pillar 1: QMS Executive Operating System */}
             <button
               onClick={() => onToggleViewMode('QMS_DASHBOARD')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 activeViewMode === 'QMS_DASHBOARD'
-                  ? 'bg-[#132E58] text-white border border-cyan-400/40 shadow-md'
+                  ? 'bg-[#132E58] text-white border border-cyan-400/50 shadow-md ring-1 ring-cyan-500/30'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5 text-cyan-300" />
               <span>QMS Executive</span>
               <span className="text-[10px] uppercase px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-400/30">
-                Pillar 2
+                Pillar 1
               </span>
             </button>
 
+            {/* Pillar 2: APQP & PPAP Launch Hub */}
             <button
               onClick={() => onToggleViewMode('APQP_PPAP')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 activeViewMode === 'APQP_PPAP'
-                  ? 'bg-[#132E58] text-white border border-[#81C341]/60 shadow-md shadow-[#81C341]/20'
+                  ? 'bg-[#132E58] text-white border border-[#81C341]/60 shadow-md shadow-[#81C341]/20 ring-1 ring-[#81C341]/30'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-[#81C341]" />
               <span>APQP & PPAP Hub</span>
               <span className="text-[10px] uppercase px-1.5 py-0.2 rounded-full bg-[#81C341]/20 text-[#81C341] font-semibold border border-[#81C341]/40">
-                Pillar 3
+                Pillar 2
               </span>
             </button>
+
+            {/* Visual Divider */}
+            <div className="h-5 w-px bg-slate-700/60 mx-0.5" />
+
+            {/* Tools Category Menu: CAD & First Article Inspection + Metrology Tools */}
+            <div className="relative flex items-center" ref={toolsMenuRef}>
+              <button
+                type="button"
+                onClick={() => onToggleViewMode('INSPECTION')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeViewMode === 'INSPECTION'
+                    ? 'bg-[#132E58] text-white border-y border-l border-blue-400/50 shadow-md ring-1 ring-blue-500/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                }`}
+                title="CAD & First Article Inspection (under Tools Category)"
+              >
+                <Wrench className="w-3.5 h-3.5 text-blue-400" />
+                <span>Tools: CAD &amp; FAI</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsToolsMenuOpen(prev => !prev)}
+                className={`flex items-center px-1.5 py-1.5 rounded-r-lg text-xs font-bold transition-all cursor-pointer border-l border-slate-700/50 ${
+                  activeViewMode === 'INSPECTION'
+                    ? 'bg-[#132E58] text-white border-y border-r border-blue-400/50'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                }`}
+                title="View All Quality Tools"
+              >
+                <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isToolsMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Tools Category Dropdown */}
+              {isToolsMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-72 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl z-50 p-1.5 space-y-1 backdrop-blur-md">
+                  <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                    Quality &amp; Engineering Tools
+                  </div>
+
+                  {/* CAD & First Article Inspection */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleViewMode('INSPECTION');
+                      setIsToolsMenuOpen(false);
+                    }}
+                    className={`w-full text-left px-2.5 py-2 rounded-lg text-xs flex items-start gap-2.5 transition-colors cursor-pointer ${
+                      activeViewMode === 'INSPECTION'
+                        ? 'bg-blue-950/70 text-blue-200 border border-blue-800/60'
+                        : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <Layers className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+                    <div>
+                      <div className="font-semibold flex items-center gap-1.5">
+                        CAD &amp; First Article Inspection
+                        {activeViewMode === 'INSPECTION' && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block"></span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-normal">
+                        Blueprint canvas, OCR auto-ballooning, ASME/ISO GD&amp;T audit
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Part Family Profile Manager */}
+                  {onOpenTemplateManager && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onOpenTemplateManager();
+                        setIsToolsMenuOpen(false);
+                      }}
+                      className="w-full text-left px-2.5 py-2 rounded-lg text-xs flex items-start gap-2.5 text-slate-200 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
+                    >
+                      <GraduationCap className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                      <div>
+                        <div className="font-semibold">Part Family Templates</div>
+                        <div className="text-[11px] text-slate-400 font-normal">
+                          Rule-based inspection training &amp; profiles
+                        </div>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {/* ========================================================
-            MODE 1: INSPECTION & FIRST ARTICLE (CAD BLUEPRINT CONTROLS)
+            TOOLS CATEGORY: CAD BLUEPRINT & FIRST ARTICLE INSPECTION
             ======================================================== */}
         {activeViewMode === 'INSPECTION' && (
           <div className="flex items-center gap-3 flex-wrap">
@@ -407,7 +501,7 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* ========================================================
-            MODE 2: EXECUTIVE QMS DASHBOARD DEDICATED HEADER
+            PILLAR 1: EXECUTIVE QMS DASHBOARD DEDICATED HEADER
             ======================================================== */}
         {activeViewMode === 'QMS_DASHBOARD' && (
           <div className="flex items-center gap-3 flex-wrap ml-auto">
@@ -467,7 +561,7 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* ========================================================
-            MODE 3: AIAG APQP & PPAP LAUNCH HUB DEDICATED HEADER
+            PILLAR 2: AIAG APQP & PPAP LAUNCH HUB DEDICATED HEADER
             ======================================================== */}
         {activeViewMode === 'APQP_PPAP' && (
           <div className="flex items-center gap-3 flex-wrap ml-auto">

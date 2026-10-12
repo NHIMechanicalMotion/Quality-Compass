@@ -40,25 +40,28 @@ export function App() {
   // Operating company scope (NHI Mechanical Motion LLC, NHI, Terre, Mantis, Makers)
   const [selectedCompany, setSelectedCompany] = useState<OperatingCompanyId>('ALL');
 
-  // Mode selection: Pillar 1 (Inspection & FAI) vs Pillar 2 (QMS Executive) vs Pillar 3 (APQP & PPAP Launch Hub)
+  // Mode selection: Pillar 1 (QMS Executive) vs Pillar 2 (APQP & PPAP Launch Hub) vs Tools Category (CAD & FAI)
   const [activeViewMode, setActiveViewMode] = useState<'INSPECTION' | 'QMS_DASHBOARD' | 'APQP_PPAP'>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const modeParam = params.get('mode');
+      if (modeParam === 'INSPECTION' || window.location.hash === '#cad' || window.location.hash === '#tools' || window.location.hash === '#inspection') return 'INSPECTION';
       if (modeParam === 'APQP_PPAP' || window.location.hash === '#apqp') return 'APQP_PPAP';
       if (modeParam === 'QMS_DASHBOARD' || window.location.hash === '#qms') return 'QMS_DASHBOARD';
     }
-    return 'INSPECTION';
+    return 'QMS_DASHBOARD';
   });
 
   // Sync mode changes to URL hash for deep linking
   useEffect(() => {
     if (activeViewMode === 'APQP_PPAP') {
       window.location.hash = '#apqp';
+    } else if (activeViewMode === 'INSPECTION') {
+      window.location.hash = '#tools';
     } else if (activeViewMode === 'QMS_DASHBOARD') {
       window.location.hash = '#qms';
     } else {
-      if (window.location.hash === '#apqp' || window.location.hash === '#qms') {
+      if (window.location.hash === '#apqp' || window.location.hash === '#qms' || window.location.hash === '#tools' || window.location.hash === '#cad') {
         history.replaceState(null, '', window.location.pathname);
       }
     }
@@ -872,7 +875,7 @@ export function App() {
         onChangeLanguage={setLanguage}
       />
 
-      {/* Main Workspace Area: Pillar 3 (APQP & PPAP Launch Hub) vs Pillar 2 (QMS Executive) vs Pillar 1 (CAD Drawing & FAI) */}
+      {/* Main Workspace Area: Pillar 2 (APQP & PPAP Launch Hub) vs Pillar 1 (QMS Executive) vs Tools Category (CAD Drawing & FAI) */}
       {activeViewMode === 'APQP_PPAP' ? (
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           <ApqpPpapDashboard
