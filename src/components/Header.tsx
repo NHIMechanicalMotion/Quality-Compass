@@ -25,8 +25,8 @@ import { OPERATING_COMPANIES, type OperatingCompanyId } from '../data/operatingC
 import { CompanyBrandLogo, CombineFamilyMiniLogo } from './common/CompanyBrandLogo';
 
 interface HeaderProps {
-  activeViewMode?: 'INSPECTION' | 'QMS_DASHBOARD' | 'APQP_PPAP';
-  onToggleViewMode?: (mode: 'INSPECTION' | 'QMS_DASHBOARD' | 'APQP_PPAP') => void;
+  activeViewMode?: 'INSPECTION' | 'QMS_DASHBOARD' | 'APQP_PPAP' | 'TRAINING_MOCKUP';
+  onToggleViewMode?: (mode: 'INSPECTION' | 'QMS_DASHBOARD' | 'APQP_PPAP' | 'TRAINING_MOCKUP') => void;
   selectedCompany?: OperatingCompanyId;
   onSelectCompany?: (company: OperatingCompanyId) => void;
   currentDrawingId: string;
@@ -270,7 +270,7 @@ export const Header: React.FC<HeaderProps> = ({
                       }}
                       className="w-full text-left px-2.5 py-2 rounded-lg text-xs flex items-start gap-2.5 text-slate-200 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
                     >
-                      <GraduationCap className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                      <Layers className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
                       <div>
                         <div className="font-semibold">Part Family Templates</div>
                         <div className="text-[11px] text-slate-400 font-normal">
@@ -279,9 +279,57 @@ export const Header: React.FC<HeaderProps> = ({
                       </div>
                     </button>
                   )}
+
+                  {/* Shop Floor Operator Training (Phase 1a Mock-Up) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleViewMode('TRAINING_MOCKUP');
+                      setIsToolsMenuOpen(false);
+                    }}
+                    className={`w-full text-left px-2.5 py-2 rounded-lg text-xs flex items-start gap-2.5 transition-colors cursor-pointer border-t border-slate-800/80 ${
+                      activeViewMode === 'TRAINING_MOCKUP'
+                        ? 'bg-lime-950/70 text-lime-200 border-lime-800/60'
+                        : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <GraduationCap className="w-4 h-4 text-lime-400 mt-0.5 shrink-0" />
+                    <div>
+                      <div className="font-semibold flex items-center gap-1.5">
+                        Shop Floor Training Hub
+                        <span className="text-[9px] uppercase px-1.5 py-0.2 rounded-full bg-lime-500/20 text-lime-300 border border-lime-400/40 font-bold">
+                          Phase 1a
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-normal">
+                        Operator training, supervisor sign-off, skills matrix
+                      </div>
+                    </div>
+                  </button>
                 </div>
               )}
             </div>
+
+            {/* Visual Divider */}
+            <div className="h-5 w-px bg-slate-700/60 mx-0.5" />
+
+            {/* Shop Floor Training Direct Header Pill */}
+            <button
+              type="button"
+              onClick={() => onToggleViewMode('TRAINING_MOCKUP')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                activeViewMode === 'TRAINING_MOCKUP'
+                  ? 'bg-lime-950 text-lime-200 border border-lime-400 shadow-md ring-2 ring-lime-400/40'
+                  : 'bg-lime-950/30 text-lime-300 hover:bg-lime-900/50 hover:text-white border border-lime-500/30'
+              }`}
+              title="Shop-Floor Operator Training & Skills Qualification System (Phase 1a Clickable Mock-Up)"
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-lime-400" />
+              <span>Shop Training</span>
+              <span className="text-[10px] uppercase px-1.5 py-0.2 rounded-full bg-lime-500/20 text-lime-300 font-bold border border-lime-400/40">
+                Phase 1a
+              </span>
+            </button>
           </div>
         )}
 

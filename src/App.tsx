@@ -11,6 +11,7 @@ import { AutoBalloonReviewModal } from './components/AutoBalloonReviewModal';
 import { TemplateManagerModal } from './components/TemplateManagerModal';
 import { QmsDashboard } from './components/qms/QmsDashboard';
 import { ApqpPpapDashboard } from './components/apqp/ApqpPpapDashboard';
+import { TrainingMockupRoot } from './components/training-mockup/TrainingMockupRoot';
 import type { StandardType, TitleBlockMetadata, AuditReport } from './types/cad';
 import type { InspectionBalloon } from './types/balloon';
 import type { InspectionControlPlan, InspectionControlPlanItem, ChinaApprovalRecord, InspectionMethodTool } from './types/inspection';
@@ -40,11 +41,12 @@ export function App() {
   // Operating company scope (NHI Mechanical Motion LLC, NHI, Terre, Mantis, Makers)
   const [selectedCompany, setSelectedCompany] = useState<OperatingCompanyId>('ALL');
 
-  // Mode selection: Pillar 1 (QMS Executive) vs Pillar 2 (APQP & PPAP Launch Hub) vs Tools Category (CAD & FAI)
-  const [activeViewMode, setActiveViewMode] = useState<'INSPECTION' | 'QMS_DASHBOARD' | 'APQP_PPAP'>(() => {
+  // Mode selection: Pillar 1 (QMS Executive) vs Pillar 2 (APQP & PPAP Launch Hub) vs Tools Category (CAD & FAI) vs Training Mock-Up
+  const [activeViewMode, setActiveViewMode] = useState<'INSPECTION' | 'QMS_DASHBOARD' | 'APQP_PPAP' | 'TRAINING_MOCKUP'>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const modeParam = params.get('mode');
+      if (modeParam === 'TRAINING_MOCKUP' || window.location.hash === '#training') return 'TRAINING_MOCKUP';
       if (modeParam === 'INSPECTION' || window.location.hash === '#cad' || window.location.hash === '#tools' || window.location.hash === '#inspection') return 'INSPECTION';
       if (modeParam === 'APQP_PPAP' || window.location.hash === '#apqp') return 'APQP_PPAP';
       if (modeParam === 'QMS_DASHBOARD' || window.location.hash === '#qms') return 'QMS_DASHBOARD';
@@ -54,14 +56,16 @@ export function App() {
 
   // Sync mode changes to URL hash for deep linking
   useEffect(() => {
-    if (activeViewMode === 'APQP_PPAP') {
+    if (activeViewMode === 'TRAINING_MOCKUP') {
+      window.location.hash = '#training';
+    } else if (activeViewMode === 'APQP_PPAP') {
       window.location.hash = '#apqp';
     } else if (activeViewMode === 'INSPECTION') {
       window.location.hash = '#tools';
     } else if (activeViewMode === 'QMS_DASHBOARD') {
       window.location.hash = '#qms';
     } else {
-      if (window.location.hash === '#apqp' || window.location.hash === '#qms' || window.location.hash === '#tools' || window.location.hash === '#cad') {
+      if (window.location.hash === '#apqp' || window.location.hash === '#qms' || window.location.hash === '#tools' || window.location.hash === '#cad' || window.location.hash === '#training') {
         history.replaceState(null, '', window.location.pathname);
       }
     }
@@ -845,6 +849,13 @@ export function App() {
 
   const activeBalloon = balloons.find(b => b.id === selectedBalloonId) || null;
   const activeItem = items.find(it => it.balloonId === selectedBalloonId) || null;
+
+  // Render Phase 1a Training Mock-Up (clean, shop-floor touch interface)
+  if (activeViewMode === 'TRAINING_MOCKUP') {
+    return (
+      <TrainingMockupRoot onExitMockup={() => setActiveViewMode('QMS_DASHBOARD')} />
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
