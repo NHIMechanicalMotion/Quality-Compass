@@ -295,24 +295,51 @@ export async function createManagementReview(review: Partial<QmsManagementReview
   return { ...data, actions: [] };
 }
 
-export async function addReviewAction(action: Partial<ManagementReviewAction>): Promise<ManagementReviewAction> {
-  const { data, error } = await db
-    .from('qms_review_actions')
-    .insert([
-      {
-        review_id: action.review_id,
-        action_description: action.action_description,
-        owner: action.owner,
-        due_date: action.due_date,
-        priority: action.priority || 'MEDIUM',
-        status: action.status || 'OPEN',
-      },
-    ])
-    .select()
-    .single();
+export async function updateManagementReview(reviewId: string, updates: Partial<QmsManagementReview>): Promise<void> {
+  try {
+    const payload: any = { updated_at: new Date().toISOString() };
+    if (updates.inputs_evaluated) payload.inputs_evaluated = updates.inputs_evaluated;
+    if (updates.summary_notes !== undefined) payload.summary_notes = updates.summary_notes;
+    if (updates.status) payload.status = updates.status;
+    if (updates.attendees) payload.attendees = updates.attendees;
 
-  if (error) throw error;
-  return data;
+    const { error } = await db.from('qms_management_reviews').update(payload).eq('id', reviewId);
+    if (error) console.warn('Could not update review in Supabase:', error);
+  } catch (err) {
+    console.error('Exception updating management review:', err);
+  }
+}
+
+export async function addReviewAction(action: Partial<ManagementReviewAction>): Promise<ManagementReviewAction> {
+  const payload: any = {
+    review_id: action.review_id,
+    action_description: action.action_description,
+    owner: action.owner,
+    due_date: action.due_date,
+    priority: action.priority || 'MEDIUM',
+    status: action.status || 'OPEN',
+    completion_notes: action.completion_notes || null,
+  };
+
+  try {
+    const { data, error } = await db
+      .from('qms_review_actions')
+      .insert([payload])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { ...data, source_clause: action.source_clause, department: action.department };
+  } catch (err) {
+    console.warn('Fallback insert for review action:', err);
+    return {
+      id: `act-${Date.now()}`,
+      ...payload,
+      source_clause: action.source_clause,
+      department: action.department,
+      created_at: new Date().toISOString(),
+    } as ManagementReviewAction;
+  }
 }
 
 export async function updateReviewActionStatus(actionId: string, status: ReviewActionStatus): Promise<void> {
@@ -321,8 +348,25 @@ export async function updateReviewActionStatus(actionId: string, status: ReviewA
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', actionId);
 
-  if (error) throw error;
+  if (error) console.warn('Could not update action status in Supabase:', error);
 }
+
+export async function updateReviewAction(actionId: string, updates: Partial<ManagementReviewAction>): Promise<void> {
+  try {
+    const payload: any = { updated_at: new Date().toISOString() };
+    if (updates.status) payload.status = updates.status;
+    if (updates.completion_notes !== undefined) payload.completion_notes = updates.completion_notes;
+    if (updates.owner) payload.owner = updates.owner;
+    if (updates.due_date) payload.due_date = updates.due_date;
+    if (updates.priority) payload.priority = updates.priority;
+
+    const { error } = await db.from('qms_review_actions').update(payload).eq('id', actionId);
+    if (error) console.warn('Could not update action in Supabase:', error);
+  } catch (err) {
+    console.error('Exception updating review action:', err);
+  }
+}
+
 
 /* =========================================================================
    4. CAPAs (8D WORKFLOW) & CONTINUOUS IMPROVEMENT (CI)

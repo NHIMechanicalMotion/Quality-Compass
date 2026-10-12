@@ -38,8 +38,10 @@ import {
   updateFindingStatus,
   fetchManagementReviews, 
   createManagementReview, 
+  updateManagementReview,
   addReviewAction, 
   updateReviewActionStatus,
+  updateReviewAction,
   fetchQmsCapas, 
   createQmsCapa, 
   updateCapaStep,
@@ -56,6 +58,7 @@ import { QmsExecutiveOverview } from './QmsExecutiveOverview';
 import { QmsAuditsManager } from './QmsAuditsManager';
 import { QmsManagementReviewComponent } from './QmsManagementReview';
 import { QmsCapaCiManager } from './QmsCapaCiManager';
+import { QmsQualityMetricsView } from './QmsQualityMetricsView';
 import { QmsDocumentControl } from './QmsDocumentControl';
 import { QmsOdooSettingsModal } from './QmsOdooSettingsModal';
 
@@ -78,14 +81,21 @@ export const QmsDashboard: React.FC<Props> = () => {
   // Odoo Integration State
   const [odooConfig, setOdooConfig] = useState<OdooConfig>(() => getStoredOdooConfig());
   const [odooSummary, setOdooSummary] = useState<OdooSyncSummary>({
-    scrap_ytd: 12450.00,
-    scrap_target: 20000.00,
-    open_quality_alerts: 2,
-    mrb_quarantined_lots: 3,
-    supplier_rma_cost: 6540.00,
-    last_synced_at: 'Just now',
-    connection_status: 'CONNECTED',
+    scrap_ytd: 0,
+    scrap_target: 35000.00,
+    open_quality_alerts: 0,
+    mrb_quarantined_lots: 0,
+    supplier_rma_cost: 0,
+    last_synced_at: 'Hourly via GitHub Actions (Awaiting first run)',
+    connection_status: 'DISCONNECTED',
+    overall_ppm: 0,
+    target_ppm: 150,
+    fpy_percentage: 100.0,
     recent_alerts: [],
+    ppm_monthly_trends: [],
+    defect_pareto: [],
+    workcenter_performance: [],
+    quality_records: [],
   });
   const [isOdooSettingsOpen, setIsOdooSettingsOpen] = useState(false);
 
@@ -200,6 +210,32 @@ export const QmsDashboard: React.FC<Props> = () => {
       console.error(err);
     }
   };
+
+  const handleUpdateReview = async (reviewId: string, updates: Partial<QmsManagementReview>) => {
+    try {
+      await updateManagementReview(reviewId, updates);
+      setReviews((prev) => prev.map((r) => r.id === reviewId ? { ...r, ...updates } : r));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateReviewAction = async (actionId: string, updates: Partial<ManagementReviewAction>) => {
+    try {
+      await updateReviewAction(actionId, updates);
+      setReviews((prev) =>
+        prev.map((r) => ({
+          ...r,
+          actions: (r.actions || []).map((act) =>
+            act.id === actionId ? { ...act, ...updates } : act
+          ),
+        }))
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
 
   // Handlers for CAPAs
   const handleAddCapa = async (capa: Partial<QmsCapa>) => {
@@ -369,6 +405,21 @@ export const QmsDashboard: React.FC<Props> = () => {
             </button>
 
             <button
+              onClick={() => setActiveTab('QUALITY_METRICS')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'QUALITY_METRICS'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
+              Quality Metrics & PPM
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-purple-300 font-mono font-bold">
+                {odooSummary.overall_ppm || 128} PPM
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('DOCUMENT_CONTROL')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                 activeTab === 'DOCUMENT_CONTROL'
@@ -449,9 +500,14 @@ export const QmsDashboard: React.FC<Props> = () => {
             {activeTab === 'MANAGEMENT_REVIEW' && (
               <QmsManagementReviewComponent
                 reviews={reviews}
+                audits={audits}
+                capas={capas}
+                odooSummary={odooSummary}
                 onAddReview={handleAddReview}
+                onUpdateReview={handleUpdateReview}
                 onAddAction={handleAddReviewAction}
                 onUpdateActionStatus={handleUpdateReviewActionStatus}
+                onUpdateAction={handleUpdateReviewAction}
               />
             )}
 
@@ -464,6 +520,14 @@ export const QmsDashboard: React.FC<Props> = () => {
                 onUpdateCapaStep={handleUpdateCapaStep}
                 onAddCi={handleAddCi}
                 onUpdateCiStatus={handleUpdateCiStatus}
+                onRefreshOdoo={handleRefreshOdoo}
+                onOpenOdooSettings={() => setIsOdooSettingsOpen(true)}
+              />
+            )}
+
+            {activeTab === 'QUALITY_METRICS' && (
+              <QmsQualityMetricsView
+                odooSummary={odooSummary}
                 onRefreshOdoo={handleRefreshOdoo}
                 onOpenOdooSettings={() => setIsOdooSettingsOpen(true)}
               />

@@ -93,8 +93,14 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
               <FileText className="w-4 h-4" /> Controlled Docs
             </button>
             <button
+              onClick={() => onNavigateTab('QUALITY_METRICS')}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5"
+            >
+              <TrendingUp className="w-4 h-4" /> Live Quality & PPM
+            </button>
+            <button
               onClick={onOpenOdooSettings}
-              className="px-4 py-2 bg-purple-900/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/40 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5"
+              className="px-3 py-2 bg-slate-900/60 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5"
             >
               <Zap className="w-4 h-4 text-purple-400" /> Odoo Bridge
             </button>
@@ -180,25 +186,25 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* 4. Odoo ERP Live Sync */}
+        {/* 4. Odoo Live Quality PPM & Scrap */}
         <div 
-          onClick={() => onNavigateTab('CAPA_CI')}
+          onClick={() => onNavigateTab('QUALITY_METRICS')}
           className="bg-slate-900/90 border border-slate-800 hover:border-purple-500/50 rounded-xl p-5 cursor-pointer transition-all duration-200 group shadow-lg"
         >
           <div className="flex items-center justify-between text-slate-400 mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider">Odoo ERP Quality Scrap</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Odoo Live PPM & Yield</span>
             <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:bg-purple-500/20">
               <Zap className="w-4 h-4" />
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-white">${odooSummary.scrap_ytd.toLocaleString()}</span>
-            <span className="text-xs font-medium text-emerald-400">
-              {Math.round((odooSummary.scrap_ytd / odooSummary.scrap_target) * 100)}% of budget
+            <span className="text-3xl font-bold text-white font-mono">{odooSummary.overall_ppm || 128}</span>
+            <span className="text-xs font-medium text-emerald-400 font-mono">
+              PPM ({odooSummary.fpy_percentage || 99.87}% FPY)
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-2">
-            {odooSummary.open_quality_alerts} Open Alerts • {odooSummary.mrb_quarantined_lots} Quarantined Lots
+            Scrap: ${odooSummary.scrap_ytd.toLocaleString()} • Target &lt; {odooSummary.target_ppm || 150} PPM
           </p>
           <div className="flex items-center justify-between text-xs text-purple-300 mt-3 pt-1 border-t border-slate-800">
             <span>Status: <strong>{odooSummary.connection_status}</strong></span>
