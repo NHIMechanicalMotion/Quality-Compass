@@ -237,27 +237,50 @@ export async function fetchDepartments(): Promise<Department[]> {
 }
 
 export async function fetchEmployees(includeArchived: boolean = false): Promise<Employee[]> {
-  let employees: Employee[] = [];
   try {
-    let query = DB.from('training_employees').select('*');
+    let query = DB.from('people').select('*');
     if (!includeArchived) {
       query = query.eq('status', 'ACTIVE');
     }
     const { data, error } = await query.order('last_name', { ascending: true });
     if (!error && data && data.length > 0) {
-      employees = data;
-      saveLocalCollection('employees', data);
-    } else {
-      employees = getLocalCollection<Employee>('employees', SEED_EMPLOYEES);
-      if (!includeArchived) {
-        employees = employees.filter(e => e.status === 'ACTIVE');
-      }
+      const mapped: Employee[] = data.map((p: any) => ({
+        id: p.id,
+        employee_number: p.employee_number,
+        first_name: p.first_name,
+        last_name: p.last_name,
+        email: p.email || '',
+        department_id: p.department_id,
+        department_name: p.department_id,
+        supervisor_id: p.supervisor_id || undefined,
+        role: (p.job_title?.toUpperCase().includes('LEAD')
+          ? 'LEAD'
+          : p.job_title?.toUpperCase().includes('SUPERVISOR')
+          ? 'SUPERVISOR'
+          : p.job_title?.toUpperCase().includes('TECH')
+          ? 'QUALITY_TECH'
+          : p.job_title?.toUpperCase().includes('MANAGER')
+          ? 'MANAGER'
+          : p.job_title?.toUpperCase().includes('ADMIN')
+          ? 'ADMIN'
+          : 'OPERATOR') as EmployeeRole,
+        shift: p.shift || 'Shift 1 (Day)',
+        status: p.status,
+        archive_reason: p.archive_reason || undefined,
+        hire_date: p.hire_date || new Date().toISOString().slice(0, 10),
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+      }));
+      saveLocalCollection('employees', mapped);
+      return mapped;
     }
-  } catch {
-    employees = getLocalCollection<Employee>('employees', SEED_EMPLOYEES);
-    if (!includeArchived) {
-      employees = employees.filter(e => e.status === 'ACTIVE');
-    }
+  } catch (err) {
+    console.warn('Supabase fetch from people failed, falling back to local:', err);
+  }
+
+  let employees = getLocalCollection<Employee>('employees', SEED_EMPLOYEES);
+  if (!includeArchived) {
+    employees = employees.filter(e => e.status === 'ACTIVE');
   }
 
   const departments = await fetchDepartments();
@@ -265,7 +288,7 @@ export async function fetchEmployees(includeArchived: boolean = false): Promise<
 
   return employees.map(emp => ({
     ...emp,
-    department_name: deptMap.get(emp.department_id) || 'General Operations',
+    department_name: deptMap.get(emp.department_id) || emp.department_id || 'General Operations',
   }));
 }
 
@@ -279,10 +302,18 @@ export async function saveEmployee(empData: Partial<Employee>, currentUser: stri
     saved = { ...existing, ...empData, updated_at: new Date().toISOString() };
     const updatedList = employees.map(e => (e.id === empData.id ? saved : e));
     saveLocalCollection('employees', updatedList);
-    logAuditAction('training_employees', saved.id, 'UPDATE', currentUser, existing, saved);
+    logAuditAction('people', saved.id, 'UPDATE', currentUser, existing, saved);
 
-    // Sync to Supabase in background
-    DB.from('training_employees').upsert(saved).catch(() => {});
+    // Sync to Supabase in people table
+    DB.from('people').update({
+      first_name: saved.first_name,
+      last_name: saved.last_name,
+      email: saved.email || null,
+      department_id: saved.department_id,
+      shift: saved.shift,
+      status: saved.status,
+      updated_at: new Date().toISOString()
+    }).eq('id', saved.id).catch(() => {});
   } else {
     // Insert new
     saved = {
@@ -291,7 +322,7 @@ export async function saveEmployee(empData: Partial<Employee>, currentUser: stri
       first_name: empData.first_name || '',
       last_name: empData.last_name || '',
       email: empData.email || '',
-      department_id: empData.department_id || 'dept-cnc',
+      department_id: empData.department_id || 'Machining & Turning',
       role: empData.role || 'OPERATOR',
       shift: empData.shift || 'Shift 1 (Day)',
       status: 'ACTIVE',
@@ -301,9 +332,20 @@ export async function saveEmployee(empData: Partial<Employee>, currentUser: stri
     };
     employees.unshift(saved);
     saveLocalCollection('employees', employees);
-    logAuditAction('training_employees', saved.id, 'INSERT', currentUser, null, saved);
+    logAuditAction('people', saved.id, 'INSERT', currentUser, null, saved);
 
-    DB.from('training_employees').insert([saved]).catch(() => {});
+    DB.from('people').upsert({
+      employee_number: saved.employee_number,
+      first_name: saved.first_name,
+      last_name: saved.last_name,
+      email: saved.email || null,
+      job_title: saved.role,
+      operating_company: 'NHI',
+      department_id: saved.department_id,
+      shift: saved.shift,
+      hire_date: saved.hire_date,
+      status: 'ACTIVE'
+    }, { onConflict: 'employee_number' }).catch(() => {});
   }
 
   return saved;
@@ -320,9 +362,14 @@ export async function archiveEmployee(id: string, reason: string, currentUser: s
   target.updated_at = new Date().toISOString();
 
   saveLocalCollection('employees', employees);
-  logAuditAction('training_employees', id, 'ARCHIVE', currentUser, old, target);
+  logAuditAction('people', id, 'ARCHIVE', currentUser, old, target);
 
-  DB.from('training_employees').update({ status: 'ARCHIVED', archive_reason: reason, updated_at: target.updated_at }).eq('id', id).catch(() => {});
+  DB.from('people').update({ 
+    status: 'ARCHIVED', 
+    archive_reason: reason, 
+    archived_at: new Date().toISOString(),
+    updated_at: target.updated_at 
+  }).eq('id', id).catch(() => {});
 }
 
 export async function restoreEmployee(id: string, currentUser: string = 'Admin'): Promise<void> {
@@ -336,9 +383,14 @@ export async function restoreEmployee(id: string, currentUser: string = 'Admin')
   target.updated_at = new Date().toISOString();
 
   saveLocalCollection('employees', employees);
-  logAuditAction('training_employees', id, 'RESTORE', currentUser, old, target);
+  logAuditAction('people', id, 'RESTORE', currentUser, old, target);
 
-  DB.from('training_employees').update({ status: 'ACTIVE', archive_reason: null, updated_at: target.updated_at }).eq('id', id).catch(() => {});
+  DB.from('people').update({ 
+    status: 'ACTIVE', 
+    archive_reason: null, 
+    archived_at: null,
+    updated_at: target.updated_at 
+  }).eq('id', id).catch(() => {});
 }
 
 // ============================================================================

@@ -13,7 +13,8 @@ import {
   UploadCloud, 
   Download, 
   Building,
-  CheckCircle2
+  CheckCircle2,
+  FileSpreadsheet
 } from 'lucide-react';
 import type { 
   Employee, 
@@ -44,6 +45,7 @@ import { TrainingLoginModal, type CurrentUserSession } from './TrainingLoginModa
 import { RecordTrainingModal } from './RecordTrainingModal';
 import { SupervisorSignoffModal } from './SupervisorSignoffModal';
 import { CsvImportModal } from './CsvImportModal';
+import { PersonnelRosterImportModal } from './PersonnelRosterImportModal';
 import { AdminExportModal } from './AdminExportModal';
 import { useAuth } from '../../context/AuthContext';
 
@@ -114,6 +116,7 @@ export const TrainingPhase1Root: React.FC<TrainingPhase1RootProps> = ({
   // Modals Open/Close States
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState<boolean>(false);
+  const [isRosterModalOpen, setIsRosterModalOpen] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   
   // Record Training Modal Props
@@ -284,11 +287,20 @@ export const TrainingPhase1Root: React.FC<TrainingPhase1RootProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
+                onClick={() => setIsRosterModalOpen(true)}
+                className="min-h-[44px] px-3.5 rounded-xl border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-base flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-amber-400" />
+                <span>Import Roster</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setIsCsvModalOpen(true)}
                 className="min-h-[44px] px-3.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-200 font-bold text-base flex items-center gap-2 transition-colors"
               >
                 <UploadCloud className="w-4 h-4 text-indigo-400" />
-                <span>Import CSV</span>
+                <span>Legacy Import</span>
               </button>
 
               <button
@@ -432,6 +444,7 @@ export const TrainingPhase1Root: React.FC<TrainingPhase1RootProps> = ({
                 currentUserName={currentUser.name}
                 onRefreshData={loadSystemData}
                 onSelectEmployeeFile={handleSelectEmployeeFile}
+                onOpenRosterImport={() => setIsRosterModalOpen(true)}
               />
             )}
 
@@ -484,6 +497,16 @@ export const TrainingPhase1Root: React.FC<TrainingPhase1RootProps> = ({
         defaultEquipmentId={signoffModalConfig.defaultEquipmentId}
         currentSupervisorName={currentUser.name}
         onSignoffSaved={handleSignoffSaved}
+      />
+
+      <PersonnelRosterImportModal
+        isOpen={isRosterModalOpen}
+        onClose={() => setIsRosterModalOpen(false)}
+        onImportComplete={() => {
+          loadSystemData();
+          setToastMessage('Personnel roster imported and provisioned successfully!');
+          setTimeout(() => setToastMessage(null), 3500);
+        }}
       />
 
       <CsvImportModal

@@ -9,7 +9,8 @@ import {
   FileText, 
   X, 
   CheckCircle2, 
-  Mail
+  Mail,
+  FileSpreadsheet
 } from 'lucide-react';
 import type { Employee, Department, EmployeeRole } from '../../types/training';
 import { saveEmployee, archiveEmployee, restoreEmployee } from '../../services/trainingService';
@@ -20,6 +21,7 @@ interface EmployeeManagementViewProps {
   currentUserName: string;
   onRefreshData: () => void;
   onSelectEmployeeFile: (emp: Employee) => void;
+  onOpenRosterImport?: () => void;
 }
 
 export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({
@@ -27,7 +29,8 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({
   departments,
   currentUserName,
   onRefreshData,
-  onSelectEmployeeFile
+  onSelectEmployeeFile,
+  onOpenRosterImport
 }) => {
   const [selectedDeptId, setSelectedDeptId] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -175,9 +178,20 @@ export const EmployeeManagementView: React.FC<EmployeeManagementViewProps> = ({
             />
           </div>
 
+          {onOpenRosterImport && (
+            <button
+              type="button"
+              onClick={onOpenRosterImport}
+              className="min-h-[48px] px-4 rounded-xl border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-300 font-bold text-base flex items-center gap-2 shadow-sm shrink-0 active:scale-95 cursor-pointer transition-colors"
+            >
+              <FileSpreadsheet className="w-5 h-5 text-amber-500" />
+              <span>Import Roster CSV</span>
+            </button>
+          )}
+
           <button
             onClick={handleOpenAdd}
-            className="min-h-[48px] px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-base flex items-center gap-2 shadow-sm shrink-0 active:scale-95"
+            className="min-h-[48px] px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-base flex items-center gap-2 shadow-sm shrink-0 active:scale-95 cursor-pointer"
           >
             <UserPlus className="w-5 h-5" />
             <span>Add Employee</span>
