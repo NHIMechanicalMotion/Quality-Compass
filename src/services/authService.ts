@@ -52,13 +52,22 @@ export async function loginOffice(email: string, password: string): Promise<Auth
       };
     }
 
-    // Lookup corresponding user_accounts and people records
-    const { data: accountData, error: accError } = await supabase
-      .from('user_accounts')
+    // Lookup corresponding people record by email
+    const { data: personData } = await supabase
+      .from('people')
       .select('*')
-      .or(`auth_user_id.eq.${authData.user.id},email.eq.${cleanEmail}`)
+      .eq('email', cleanEmail)
       .limit(1)
       .maybeSingle();
+
+    // Lookup corresponding user_accounts record
+    let accountQuery = supabase.from('user_accounts').select('*');
+    if (personData) {
+      accountQuery = accountQuery.or(`auth_user_id.eq.${authData.user.id},person_id.eq.${personData.id}`);
+    } else {
+      accountQuery = accountQuery.eq('auth_user_id', authData.user.id);
+    }
+    const { data: accountData, error: accError } = await accountQuery.limit(1).maybeSingle();
 
     if (accError) {
       console.error('Error fetching user account:', accError);

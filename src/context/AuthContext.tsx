@@ -65,11 +65,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user && isMounted) {
-          // Look up user_accounts by auth_user_id or email
+          // Look up user_accounts by auth_user_id
           const { data: acc } = await supabase
             .from('user_accounts')
             .select('*')
-            .or(`auth_user_id.eq.${session.user.id},email.eq.${session.user.email}`)
+            .eq('auth_user_id', session.user.id)
             .limit(1)
             .maybeSingle();
 
