@@ -5,7 +5,7 @@ export type OperatingCompanyScope = 'NHI' | 'TERRE' | 'MANTIS' | 'MAKERS' | 'ALL
 
 export type EmployeeRole = 'OPERATOR' | 'LEAD' | 'SUPERVISOR' | 'QUALITY_TECH' | 'MANAGER' | 'ADMIN';
 
-export type SystemUserRole = 'ADMIN' | 'SUPERVISOR' | 'HR' | 'OPERATOR';
+export type SystemUserRole = 'ADMIN' | 'SUPERVISOR' | 'HR' | 'OPERATOR' | 'TRAINER';
 
 export type RecordStatus = 'ACTIVE' | 'ARCHIVED';
 

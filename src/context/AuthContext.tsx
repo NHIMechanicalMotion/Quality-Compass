@@ -18,8 +18,7 @@ import {
 } from '../services/authService';
 import { 
   fetchPersonById, 
-  fetchPersonRoleAssignments, 
-  type UserRoleAssignment 
+  fetchPersonRoleAssignments 
 } from '../services/userService';
 
 const KIOSK_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -66,7 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user && isMounted) {
           // Look up user_accounts by auth_user_id
-          const { data: acc } = await supabase
+          const { data: acc } = await (supabase as any)
             .from('user_accounts')
             .select('*')
             .eq('auth_user_id', session.user.id)
@@ -99,7 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initSession();
 
     // Listen to Supabase auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event) => {
       if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
         setPinMustChange(false);

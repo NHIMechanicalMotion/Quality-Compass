@@ -15,6 +15,8 @@ import {
   type UserRoleAssignment 
 } from './userService';
 
+const db = supabase as any;
+
 export interface AuthenticatedUser {
   person: Person;
   account: UserAccount | null;
@@ -53,7 +55,7 @@ export async function loginOffice(email: string, password: string): Promise<Auth
     }
 
     // Lookup corresponding people record by email
-    const { data: personData } = await supabase
+    const { data: personData } = await db
       .from('people')
       .select('*')
       .eq('email', cleanEmail)
@@ -61,7 +63,7 @@ export async function loginOffice(email: string, password: string): Promise<Auth
       .maybeSingle();
 
     // Lookup corresponding user_accounts record
-    let accountQuery = supabase.from('user_accounts').select('*');
+    let accountQuery = db.from('user_accounts').select('*');
     if (personData) {
       accountQuery = accountQuery.or(`auth_user_id.eq.${authData.user.id},person_id.eq.${personData.id}`);
     } else {

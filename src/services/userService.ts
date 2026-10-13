@@ -4,6 +4,15 @@
 // ============================================================================
 
 import { supabase } from './supabase';
+export type { 
+  Person, 
+  UserAccount, 
+  AppModule, 
+  ModuleRole, 
+  UserRoleAssignment, 
+  PersonDossier,
+  UserManagementAuditEntry
+} from '../types/userManagement';
 import type { 
   Person, 
   UserAccount, 
@@ -164,6 +173,8 @@ export async function fetchUserRoles(personId: string): Promise<UserRoleAssignme
     return [];
   }
 }
+
+export const fetchPersonRoleAssignments = fetchUserRoles;
 
 /**
  * Fetch complete dossier for a person (Person + Account + Roles)
