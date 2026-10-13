@@ -357,6 +357,15 @@ export interface OdooQualityDetailRecord {
   stage: 'New' | 'Confirmed' | 'Action Proposed' | 'Resolved';
   is_quarantined_mrb: boolean;
   notes: string;
+  odoo_id?: number;
+  odoo_url?: string;
+  linked_scrap_id?: number;
+  linked_scrap_url?: string;
+  linked_scrap_qty?: number;
+  linked_mo_id?: number;
+  linked_mo_url?: string;
+  company_id?: number;
+  company_name?: string;
 }
 
 export interface OdooSyncSummary {

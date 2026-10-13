@@ -156,6 +156,12 @@ For teams running an AWS Lightsail instance (e.g., Ubuntu LTS):
 ## 6. Discrepancy & Quarantine Logger
 
 `QmsQualityMetricsView.tsx` renders a detailed discrepancy table tracking shopfloor quality alerts:
+- **Direct ERP Document Links:** Clickable badges linking directly into Odoo 18 forms (`/web#id=...&model=...&view_type=form`) for:
+  - Quality Alerts (`QA #...`)
+  - Linked Scrap Transactions (`SP #...` with scrapped piece quantity)
+  - Linked Manufacturing Orders (`MO #...`)
+- **Scrap Separation Principle:** Shopfloor scrap records are strictly isolated for the In-Process MO Scrap PPM & FPY mathematics and cross-referenced onto corresponding Quality Alerts. Scraps are not dumped as raw alerts, preventing Pareto skewing.
+- **Operating Company Partitioning:** Quality metrics and Pareto rollups dynamically scope to the enterprise parent or individual operating companies (`NHI`, `TERRE`, `MANTIS`, `MAKERS`).
 - **Discrepancy Identifiers:** Odoo Alert Code (e.g., `QA-2026-089`), Lot Number, and Work Order.
 - **Product & Customer Association:** Product SKU, Customer Name, and Work Center.
 - **MRB Quarantine State:** Highlighting lots under Material Review Board hold with active red badges.

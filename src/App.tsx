@@ -34,7 +34,7 @@ import {
 } from './utils/cadOcrParser';
 import { extractTitleBlockMetadata, applyExtractedTitleBlock } from './utils/titleBlockExtractor';
 import { getStoredPartFamilyProfiles, savePartFamilyProfile, resetPartFamilyProfilesToDefault } from './utils/templateManager';
-import type { OperatingCompanyId } from './data/operatingCompanies';
+import { OPERATING_COMPANIES, type OperatingCompanyId } from './data/operatingCompanies';
 import { saveAs } from 'file-saver';
 
 export function App() {
@@ -70,6 +70,12 @@ export function App() {
       }
     }
   }, [activeViewMode]);
+
+  // Update blueprint organization when operating company changes
+  useEffect(() => {
+    const compName = OPERATING_COMPANIES[selectedCompany]?.name || 'NHI Mechanical Motion LLC';
+    setMetadata(prev => ({ ...prev, organization: compName }));
+  }, [selectedCompany]);
 
   // Current active drawing selection (clean blank canvas by default)
   const [currentDrawingId, setCurrentDrawingId] = useState<string>('drawing-blank');
@@ -903,7 +909,10 @@ export function App() {
         </div>
       ) : activeViewMode === 'QMS_DASHBOARD' ? (
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-          <QmsDashboard onSwitchToInspection={() => setActiveViewMode('INSPECTION')} />
+          <QmsDashboard 
+            selectedCompany={selectedCompany}
+            onSwitchToInspection={() => setActiveViewMode('INSPECTION')} 
+          />
         </div>
       ) : (
         /* Main Workspace Split View */

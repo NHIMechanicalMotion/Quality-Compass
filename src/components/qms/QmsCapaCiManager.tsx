@@ -32,7 +32,6 @@ interface Props {
   onAddCi: (ci: Partial<ContinuousImprovement>) => Promise<void>;
   onUpdateCiStatus: (ciId: string, status: CiStatus) => Promise<void>;
   onRefreshOdoo: () => Promise<void>;
-  onOpenOdooSettings: () => void;
 }
 
 const EIGHT_D_STEPS: { id: EightDStep; label: string; short: string }[] = [
@@ -55,7 +54,6 @@ export const QmsCapaCiManager: React.FC<Props> = ({
   onAddCi,
   onUpdateCiStatus,
   onRefreshOdoo,
-  onOpenOdooSettings,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'8D_CAPA' | 'KAIZEN_CI' | 'ODOO_BRIDGE'>('8D_CAPA');
   const [selectedCapaId, setSelectedCapaId] = useState<string>(capas[0]?.id || '');
@@ -185,12 +183,6 @@ export const QmsCapaCiManager: React.FC<Props> = ({
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-purple-400 ${isSyncing ? 'animate-spin' : ''}`} />
                 Sync Odoo
-              </button>
-              <button
-                onClick={onOpenOdooSettings}
-                className="px-3 py-2 bg-purple-900/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/40 text-xs font-semibold rounded-lg transition-colors"
-              >
-                Configure Odoo
               </button>
             </div>
           )}

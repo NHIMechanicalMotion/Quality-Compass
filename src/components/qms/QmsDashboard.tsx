@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   ShieldCheck, 
   Calendar, 
@@ -18,7 +18,6 @@ import type {
   QmsCapa, 
   ContinuousImprovement, 
   ControlledDocument, 
-  OdooConfig, 
   OdooSyncSummary,
   FindingStatus,
   ReviewActionStatus,
@@ -49,24 +48,33 @@ import {
   createContinuousImprovement, 
   updateCiStatus 
 } from '../../services/qmsSupabase';
+import { fetchOdooSummaryData } from '../../services/odooService';
 import { 
-  getStoredOdooConfig, 
-  saveStoredOdooConfig, 
-  fetchOdooSummaryData 
-} from '../../services/odooService';
+  OPERATING_COMPANIES, 
+  type OperatingCompanyId, 
+  matchOperatingCompany 
+} from '../../data/operatingCompanies';
+import { 
+  calculateDefectPareto, 
+  calculatePpmMonthlyTrends, 
+  calculateWorkCenterQuality 
+} from '../../services/odooQualityService';
 import { QmsExecutiveOverview } from './QmsExecutiveOverview';
 import { QmsAuditsManager } from './QmsAuditsManager';
 import { QmsManagementReviewComponent } from './QmsManagementReview';
 import { QmsCapaCiManager } from './QmsCapaCiManager';
 import { QmsQualityMetricsView } from './QmsQualityMetricsView';
 import { QmsDocumentControl } from './QmsDocumentControl';
-import { QmsOdooSettingsModal } from './QmsOdooSettingsModal';
 
 interface Props {
   onSwitchToInspection?: () => void;
+  selectedCompany?: OperatingCompanyId;
 }
 
-export const QmsDashboard: React.FC<Props> = () => {
+export const QmsDashboard: React.FC<Props> = ({
+  onSwitchToInspection: _onSwitchToInspection,
+  selectedCompany = 'ALL',
+}) => {
   const [activeTab, setActiveTab] = useState<QmsTab>('OVERVIEW');
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -79,7 +87,6 @@ export const QmsDashboard: React.FC<Props> = () => {
   const [documents, setDocuments] = useState<ControlledDocument[]>([]);
 
   // Odoo Integration State
-  const [odooConfig, setOdooConfig] = useState<OdooConfig>(() => getStoredOdooConfig());
   const [odooSummary, setOdooSummary] = useState<OdooSyncSummary>({
     scrap_ytd: 0,
     scrap_target: 35000.00,
@@ -97,7 +104,49 @@ export const QmsDashboard: React.FC<Props> = () => {
     workcenter_performance: [],
     quality_records: [],
   });
-  const [isOdooSettingsOpen, setIsOdooSettingsOpen] = useState(false);
+
+  // Filter Odoo Summary by selected Operating Company
+  const companyFilteredOdooSummary = useMemo<OdooSyncSummary>(() => {
+    if (selectedCompany === 'ALL') {
+      return odooSummary;
+    }
+
+    const filteredRecords = (odooSummary.quality_records || []).filter((r) =>
+      matchOperatingCompany(r.company_name, selectedCompany)
+    );
+
+    const filteredPareto = calculateDefectPareto(filteredRecords);
+    const filteredTrends = calculatePpmMonthlyTrends(filteredRecords);
+    const filteredWc = calculateWorkCenterQuality(filteredRecords);
+    const openAlerts = filteredRecords.filter((r) => r.stage !== 'Resolved');
+    const mrbLots = filteredRecords.filter((r) => r.is_quarantined_mrb);
+    const scrapYtd = filteredRecords.reduce((sum, r) => sum + (r.scrap_cost || 0), 0);
+    const currentTrend = filteredTrends[filteredTrends.length - 1];
+
+    return {
+      ...odooSummary,
+      quality_records: filteredRecords,
+      defect_pareto: filteredPareto,
+      ppm_monthly_trends: filteredTrends.length > 0 ? filteredTrends : odooSummary.ppm_monthly_trends,
+      workcenter_performance: filteredWc,
+      open_quality_alerts: openAlerts.length,
+      mrb_quarantined_lots: mrbLots.length,
+      scrap_ytd: scrapYtd > 0 ? scrapYtd : odooSummary.scrap_ytd,
+      overall_ppm: currentTrend?.ppm ?? odooSummary.overall_ppm,
+      fpy_percentage: currentTrend?.fpy_percentage ?? odooSummary.fpy_percentage,
+      recent_alerts: filteredRecords.slice(0, 10).map((r) => ({
+        id: r.id,
+        alert_code: r.alert_code,
+        product_name: r.product_name,
+        lot_number: r.lot_number,
+        work_order: r.work_order,
+        reason: r.defect_type,
+        stage: r.stage,
+        cost_impact: r.scrap_cost,
+        date: r.date,
+      })),
+    };
+  }, [odooSummary, selectedCompany]);
 
   // Load all initial data from Supabase & Odoo
   const loadAllData = useCallback(async () => {
@@ -338,11 +387,6 @@ export const QmsDashboard: React.FC<Props> = () => {
     setIsSyncing(false);
   };
 
-  const handleSaveOdooConfig = (cfg: OdooConfig) => {
-    setOdooConfig(cfg);
-    saveStoredOdooConfig(cfg);
-  };
-
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden min-h-0 bg-slate-950 text-slate-100">
       {/* Sub-Navigation Tabs Bar - Docked directly to the header */}
@@ -415,7 +459,7 @@ export const QmsDashboard: React.FC<Props> = () => {
               <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
               Quality Metrics & PPM
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-purple-300 font-mono font-bold">
-                {odooSummary.overall_ppm ?? 0} PPM
+                {companyFilteredOdooSummary.overall_ppm ?? 0} PPM
               </span>
             </button>
 
@@ -437,6 +481,13 @@ export const QmsDashboard: React.FC<Props> = () => {
 
           {/* Right Status Badges: Supabase & Odoo Live Sync */}
           <div className="flex items-center gap-3">
+            {selectedCompany !== 'ALL' && (
+              <div className="flex items-center gap-1.5 text-xs bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+                <span className="text-slate-400">Company:</span>
+                <span className="font-bold text-emerald-400">{OPERATING_COMPANIES[selectedCompany]?.shortCode || selectedCompany}</span>
+              </div>
+            )}
+
             <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
               <Database className="w-3.5 h-3.5 text-emerald-400" />
               <span>Supabase DB: <strong className="text-emerald-400">Live</strong></span>
@@ -444,7 +495,7 @@ export const QmsDashboard: React.FC<Props> = () => {
 
             <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
               <Zap className="w-3.5 h-3.5 text-purple-400" />
-              <span>Odoo: <strong className="text-purple-300">{odooSummary.connection_status}</strong></span>
+              <span>Odoo: <strong className="text-purple-300">{companyFilteredOdooSummary.connection_status}</strong></span>
               <button
                 onClick={handleRefreshOdoo}
                 disabled={isSyncing}
@@ -454,13 +505,6 @@ export const QmsDashboard: React.FC<Props> = () => {
                 <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-purple-400' : ''}`} />
               </button>
             </div>
-
-            <button
-              onClick={() => setIsOdooSettingsOpen(true)}
-              className="px-2.5 py-1 bg-purple-950/40 hover:bg-purple-900/50 text-purple-300 border border-purple-800/60 rounded-lg text-xs font-medium transition-colors"
-            >
-              Configure Odoo
-            </button>
           </div>
         </div>
       </div>
@@ -482,9 +526,9 @@ export const QmsDashboard: React.FC<Props> = () => {
                 capas={capas}
                 ciList={ciList}
                 documents={documents}
-                odooSummary={odooSummary}
+                odooSummary={companyFilteredOdooSummary}
                 onNavigateTab={(tab) => setActiveTab(tab)}
-                onOpenOdooSettings={() => setIsOdooSettingsOpen(true)}
+                selectedCompany={selectedCompany}
               />
             )}
 
@@ -502,7 +546,7 @@ export const QmsDashboard: React.FC<Props> = () => {
                 reviews={reviews}
                 audits={audits}
                 capas={capas}
-                odooSummary={odooSummary}
+                odooSummary={companyFilteredOdooSummary}
                 onAddReview={handleAddReview}
                 onUpdateReview={handleUpdateReview}
                 onAddAction={handleAddReviewAction}
@@ -515,21 +559,20 @@ export const QmsDashboard: React.FC<Props> = () => {
               <QmsCapaCiManager
                 capas={capas}
                 ciList={ciList}
-                odooSummary={odooSummary}
+                odooSummary={companyFilteredOdooSummary}
                 onAddCapa={handleAddCapa}
                 onUpdateCapaStep={handleUpdateCapaStep}
                 onAddCi={handleAddCi}
                 onUpdateCiStatus={handleUpdateCiStatus}
                 onRefreshOdoo={handleRefreshOdoo}
-                onOpenOdooSettings={() => setIsOdooSettingsOpen(true)}
               />
             )}
 
             {activeTab === 'QUALITY_METRICS' && (
               <QmsQualityMetricsView
-                odooSummary={odooSummary}
+                odooSummary={companyFilteredOdooSummary}
                 onRefreshOdoo={handleRefreshOdoo}
-                onOpenOdooSettings={() => setIsOdooSettingsOpen(true)}
+                selectedCompany={selectedCompany}
               />
             )}
 
@@ -545,14 +588,6 @@ export const QmsDashboard: React.FC<Props> = () => {
         )}
         </div>
       </div>
-
-      {/* Odoo Configuration Modal */}
-      <QmsOdooSettingsModal
-        isOpen={isOdooSettingsOpen}
-        onClose={() => setIsOdooSettingsOpen(false)}
-        config={odooConfig}
-        onSaveConfig={handleSaveOdooConfig}
-      />
     </div>
   );
 };

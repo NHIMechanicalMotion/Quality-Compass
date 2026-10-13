@@ -93,7 +93,7 @@ export function calculateDefectPareto(records: OdooQualityDetailRecord[]): OdooD
   records.forEach((r) => {
     const key = (r.defect_type || 'Unspecified Defect').split('>')[0].split('(')[0].trim();
     const curr = reasonMap.get(key) || { count: 0, cost: 0 };
-    curr.count += (r.quantity_rejected || 1);
+    curr.count += 1; // Each alert represents 1 occurrence of the failure mode
     curr.cost += (r.scrap_cost || 0);
     reasonMap.set(key, curr);
   });
@@ -179,25 +179,49 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
       .limit(500);
 
     if (!recError && dbRecords && dbRecords.length > 0) {
-      records = dbRecords.map((r: any) => ({
-        id: r.id,
-        alert_code: r.alert_code,
-        product_sku: r.product_sku,
-        product_name: r.product_name,
-        customer_name: r.customer_name || 'NHIMM Customer',
-        workcenter: r.workcenter || 'SHOPFLOOR',
-        lot_number: r.lot_number || 'LOT-SYNCED',
-        work_order: r.work_order || 'WO-SYNCED',
-        defect_type: r.defect_type,
-        quantity_inspected: Number(r.quantity_inspected || 0),
-        quantity_rejected: Number(r.quantity_rejected || 0),
-        calculated_ppm: Number(r.calculated_ppm || 0),
-        scrap_cost: Number(r.scrap_cost || 0),
-        date: r.date,
-        stage: r.stage || 'New',
-        is_quarantined_mrb: Boolean(r.is_quarantined_mrb),
-        notes: r.notes || '',
-      }));
+      records = dbRecords
+        .filter((r: any) => !String(r.id || '').startsWith('odoo-scrap-'))
+        .map((r: any) => {
+          const rawId = String(r.id || '');
+          const odooId = r.odoo_id || (rawId.startsWith('odoo-alert-') ? parseInt(rawId.replace('odoo-alert-', ''), 10) : undefined);
+          const odooUrl = r.odoo_url || (odooId ? `https://odoo.nhi-mfg.com/web#id=${odooId}&model=quality.alert&view_type=form` : undefined);
+
+          // Sanitize old synthetic placeholder data
+          const isOldPlaceholder = r.quantity_inspected === 1000 && r.calculated_ppm === 1000;
+          const qtyInspected = isOldPlaceholder ? 0 : Number(r.quantity_inspected || 0);
+          const qtyRejected = Number(r.quantity_rejected || 1);
+          const calcPpm = isOldPlaceholder ? 0 : Number(r.calculated_ppm || 0);
+          const scrapCost = (isOldPlaceholder && r.scrap_cost === 500) ? 0 : Number(r.scrap_cost || 0);
+
+          return {
+            id: r.id,
+            alert_code: r.alert_code,
+            product_sku: r.product_sku,
+            product_name: r.product_name,
+            customer_name: r.customer_name || 'NHIMM Customer',
+            workcenter: r.workcenter || 'SHOPFLOOR',
+            lot_number: r.lot_number || 'LOT-UNKNOWN',
+            work_order: r.work_order || 'WO-GENERAL',
+            defect_type: r.defect_type,
+            quantity_inspected: qtyInspected,
+            quantity_rejected: qtyRejected,
+            calculated_ppm: calcPpm,
+            scrap_cost: scrapCost,
+            date: r.date,
+            stage: r.stage || 'New',
+            is_quarantined_mrb: Boolean(r.is_quarantined_mrb),
+            notes: r.notes || '',
+            odoo_id: odooId,
+            odoo_url: odooUrl,
+            linked_scrap_id: r.linked_scrap_id,
+            linked_scrap_url: r.linked_scrap_url,
+            linked_scrap_qty: r.linked_scrap_qty ? Number(r.linked_scrap_qty) : undefined,
+            linked_mo_id: r.linked_mo_id,
+            linked_mo_url: r.linked_mo_url,
+            company_id: r.company_id,
+            company_name: r.company_name,
+          };
+        });
     }
 
     // Query pre-aggregated monthly metrics if present
@@ -316,18 +340,18 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
     overall_ppm: overallPpm,
     target_ppm: targetPpm,
     fpy_percentage: fpy,
-    mo_pieces_produced: currentMonthMetric?.mo_pieces_produced ?? 0,
-    mo_scrap_qty: currentMonthMetric?.mo_scrap_qty ?? 0,
-    mo_scrap_ppm: currentMonthMetric?.mo_scrap_ppm ?? 0,
-    fg_make_sold_12m: currentMonthMetric?.fg_make_sold_12m ?? 0,
-    fg_make_returned_12m: currentMonthMetric?.fg_make_returned_12m ?? 0,
-    fg_make_ppm: currentMonthMetric?.fg_make_ppm ?? 0,
-    fg_buy_sold_12m: currentMonthMetric?.fg_buy_sold_12m ?? 0,
-    fg_buy_returned_12m: currentMonthMetric?.fg_buy_returned_12m ?? 0,
-    fg_buy_ppm: currentMonthMetric?.fg_buy_ppm ?? 0,
-    fg_total_sold_12m: currentMonthMetric?.fg_total_sold_12m ?? 0,
-    fg_total_returned_12m: currentMonthMetric?.fg_total_returned_12m ?? 0,
-    fg_total_ppm: currentMonthMetric?.fg_total_ppm ?? 0,
+    mo_pieces_produced: ([...ppmMonthlyTrends].reverse().find(m => (m.mo_pieces_produced || 0) > 0) || currentMonthMetric)?.mo_pieces_produced ?? 0,
+    mo_scrap_qty: ([...ppmMonthlyTrends].reverse().find(m => (m.mo_scrap_qty || 0) > 0) || currentMonthMetric)?.mo_scrap_qty ?? 0,
+    mo_scrap_ppm: ([...ppmMonthlyTrends].reverse().find(m => (m.mo_scrap_ppm || 0) > 0) || currentMonthMetric)?.mo_scrap_ppm ?? 0,
+    fg_make_sold_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_make_sold_12m || 0) > 0) || currentMonthMetric)?.fg_make_sold_12m ?? 0,
+    fg_make_returned_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_make_returned_12m || 0) > 0) || currentMonthMetric)?.fg_make_returned_12m ?? 0,
+    fg_make_ppm: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_make_ppm || 0) > 0) || currentMonthMetric)?.fg_make_ppm ?? 0,
+    fg_buy_sold_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_buy_sold_12m || 0) > 0) || currentMonthMetric)?.fg_buy_sold_12m ?? 0,
+    fg_buy_returned_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_buy_returned_12m || 0) > 0) || currentMonthMetric)?.fg_buy_returned_12m ?? 0,
+    fg_buy_ppm: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_buy_ppm || 0) > 0) || currentMonthMetric)?.fg_buy_ppm ?? 0,
+    fg_total_sold_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_total_sold_12m || 0) > 0) || currentMonthMetric)?.fg_total_sold_12m ?? 0,
+    fg_total_returned_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_total_returned_12m || 0) > 0) || currentMonthMetric)?.fg_total_returned_12m ?? 0,
+    fg_total_ppm: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_total_ppm || 0) > 0) || currentMonthMetric)?.fg_total_ppm ?? 0,
     recent_alerts: alerts,
     ppm_monthly_trends: ppmMonthlyTrends,
     defect_pareto: pareto,

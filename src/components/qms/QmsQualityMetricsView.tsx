@@ -11,7 +11,8 @@ import {
   ShieldAlert, 
   DollarSign, 
   X,
-  Gauge
+  Gauge,
+  ExternalLink
 } from 'lucide-react';
 import type { 
   OdooSyncSummary, 
@@ -21,17 +22,18 @@ import {
   addOdooQualityRecord, 
   updateQualityRecordStage 
 } from '../../services/odooQualityService';
+import { OPERATING_COMPANIES, type OperatingCompanyId } from '../../data/operatingCompanies';
 
 interface Props {
   odooSummary: OdooSyncSummary;
   onRefreshOdoo: () => Promise<void>;
-  onOpenOdooSettings: () => void;
+  selectedCompany?: OperatingCompanyId;
 }
 
 export const QmsQualityMetricsView: React.FC<Props> = ({
   odooSummary,
   onRefreshOdoo,
-  onOpenOdooSettings,
+  selectedCompany = 'ALL',
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -117,6 +119,11 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
               Live Shopfloor Telemetry
             </span>
+            {selectedCompany !== 'ALL' && (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                {OPERATING_COMPANIES[selectedCompany]?.name || selectedCompany}
+              </span>
+            )}
           </div>
           <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
             Quality Performance, PPM Tracking & Scrap Analytics
@@ -146,13 +153,6 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
             className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-purple-500/25 transition-all flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" /> Log Quality Alert
-          </button>
-
-          <button
-            onClick={onOpenOdooSettings}
-            className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-slate-200 text-xs font-medium rounded-lg border border-slate-800 transition-colors"
-          >
-            API Settings
           </button>
         </div>
       </div>
@@ -466,6 +466,7 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
                 <th className="py-2.5 px-3">Alert Code / Date</th>
                 <th className="py-2.5 px-3">Part SKU & Description</th>
                 <th className="py-2.5 px-3">Customer / Lot #</th>
+                <th className="py-2.5 px-3">Odoo ERP Links</th>
                 <th className="py-2.5 px-3">Workcenter</th>
                 <th className="py-2.5 px-3">Defect Reason</th>
                 <th className="py-2.5 px-3 text-right">PPM & Cost</th>
@@ -476,7 +477,7 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
             <tbody className="divide-y divide-slate-800/60">
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-slate-500 font-mono">
+                  <td colSpan={9} className="text-center py-8 text-slate-500 font-mono">
                     No quality records matching filters.
                   </td>
                 </tr>
@@ -484,8 +485,21 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
                 filteredRecords.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3 px-3">
-                      <span className="font-mono font-bold text-purple-400 block">{r.alert_code}</span>
-                      <span className="text-[10px] text-slate-500">{r.date}</span>
+                      {r.odoo_url ? (
+                        <a
+                          href={r.odoo_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono font-bold text-purple-400 hover:text-purple-300 hover:underline inline-flex items-center gap-1 group"
+                          title="Open Quality Alert in Odoo ERP"
+                        >
+                          {r.alert_code}
+                          <ExternalLink className="w-3 h-3 opacity-70 group-hover:opacity-100" />
+                        </a>
+                      ) : (
+                        <span className="font-mono font-bold text-purple-400 block">{r.alert_code}</span>
+                      )}
+                      <span className="text-[10px] text-slate-500 block">{r.date}</span>
                     </td>
                     <td className="py-3 px-3 max-w-[220px]">
                       <span className="font-mono text-[11px] font-semibold text-slate-200 block truncate">{r.product_sku}</span>
@@ -494,6 +508,50 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
                     <td className="py-3 px-3">
                       <span className="text-slate-200 font-medium block">{r.customer_name}</span>
                       <span className="font-mono text-[10px] text-slate-500">{r.lot_number} ({r.work_order})</span>
+                    </td>
+                    <td className="py-3 px-3">
+                      <div className="flex flex-col gap-1 items-start">
+                        {r.odoo_url && (
+                          <a
+                            href={r.odoo_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 border border-purple-500/30 transition-colors"
+                            title="Open Quality Alert in Odoo"
+                          >
+                            <span>QA #{r.odoo_id || r.alert_code.replace('QA-', '')}</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        )}
+                        {r.linked_scrap_url && (
+                          <a
+                            href={r.linked_scrap_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 transition-colors"
+                            title={`Open Scrap SP #${r.linked_scrap_id} in Odoo (${r.linked_scrap_qty || 0} pcs)`}
+                          >
+                            <span>SP #{r.linked_scrap_id}</span>
+                            {r.linked_scrap_qty ? <span className="text-amber-400 font-normal">({r.linked_scrap_qty} pcs)</span> : null}
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        )}
+                        {r.linked_mo_url && (
+                          <a
+                            href={r.linked_mo_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 border border-blue-500/30 transition-colors"
+                            title={`Open MO #${r.linked_mo_id} in Odoo`}
+                          >
+                            <span>MO #{r.linked_mo_id}</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        )}
+                        {!r.odoo_url && !r.linked_scrap_url && !r.linked_mo_url && (
+                          <span className="text-[10px] text-slate-500 font-mono italic">Offline Log</span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-3">
                       <span className="font-mono text-[11px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded">

@@ -138,3 +138,27 @@ export const OPERATING_COMPANIES: Record<OperatingCompanyId, OperatingCompany> =
     ],
   },
 };
+
+/**
+ * Match a raw company name, company ID, or department string against an OperatingCompanyId.
+ */
+export function matchOperatingCompany(companyValue?: string | number | null, selectedCompany?: OperatingCompanyId): boolean {
+  if (!selectedCompany || selectedCompany === 'ALL') return true;
+  if (!companyValue) {
+    // If unspecified, NHI is the primary manufacturing company
+    return selectedCompany === 'NHI';
+  }
+  const str = String(companyValue).toLowerCase().trim();
+  switch (selectedCompany) {
+    case 'NHI':
+      return str.includes('nhi') || str.includes('industries') || str.includes('mechanical') || str === 'nhi';
+    case 'TERRE':
+      return str.includes('terre');
+    case 'MANTIS':
+      return str.includes('mantis');
+    case 'MAKERS':
+      return str.includes('maker') || str.includes('automation');
+    default:
+      return true;
+  }
+}

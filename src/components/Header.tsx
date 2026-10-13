@@ -151,18 +151,19 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-bold uppercase tracking-wider text-[10px]">Scope:</span>
             </div>
 
-            {/* NHIMM Combined Rollup */}
+            {/* NHIMM Consolidated Enterprise Rollup */}
             <button
               type="button"
               onClick={() => onSelectCompany('ALL')}
-              className={`relative flex items-center justify-center h-7 px-2 rounded-lg border transition-all cursor-pointer overflow-hidden ${
+              className={`relative flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer shrink-0 ${
                 selectedCompany === 'ALL'
-                  ? 'bg-blue-950/90 border-blue-400 ring-2 ring-blue-500/60 shadow-md'
-                  : 'bg-[#07172C] border-[#132E58] hover:border-slate-600 opacity-80 hover:opacity-100'
+                  ? 'bg-blue-900/90 text-white border-blue-400 ring-2 ring-blue-500/60 shadow-md'
+                  : 'bg-[#07172C] text-slate-300 border-[#132E58] hover:border-slate-500 hover:text-white'
               }`}
               title="Consolidated Enterprise: NHI Mechanical Motion LLC (All 4 Operating Companies)"
             >
               <CombineFamilyMiniLogo />
+              <span className="hidden sm:inline">Consolidated</span>
             </button>
 
             {/* Individual Operating Companies */}
@@ -174,18 +175,17 @@ export const Header: React.FC<HeaderProps> = ({
                   key={cId}
                   type="button"
                   onClick={() => onSelectCompany(cId)}
-                  className={`relative flex items-center justify-center h-7 px-2 rounded-lg border transition-all cursor-pointer shrink-0 ${
+                  className={`relative flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer shrink-0 ${
                     isSelected
-                      ? `${comp.badgeBg} ${comp.badgeBorder} ring-2 ring-[#81C341]/80 shadow-md scale-[1.03]`
-                      : 'bg-[#07172C] border-[#132E58] hover:border-slate-600 opacity-80 hover:opacity-100'
+                      ? `${comp.badgeBg} ${comp.textColor} ${comp.badgeBorder} ring-2 ring-white/30 shadow-md font-bold scale-[1.02]`
+                      : 'bg-[#07172C] text-slate-400 border-[#132E58] hover:border-slate-500 hover:text-slate-200'
                   }`}
                   title={`${comp.name}: ${comp.tagline}`}
                 >
                   <CompanyBrandLogo companyId={cId} size="xs" showText={false} />
+                  <span>{comp.name}</span>
                   {isSelected && (
-                    <span className="absolute top-0.5 right-0.5 flex h-1.5 w-1.5">
-                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#81C341]"></span>
-                    </span>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
                   )}
                 </button>
               );

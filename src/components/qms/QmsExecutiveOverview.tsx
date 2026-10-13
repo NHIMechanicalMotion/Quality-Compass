@@ -17,6 +17,7 @@ import type {
   OdooSyncSummary,
   QmsTab 
 } from '../../types/qms';
+import { OPERATING_COMPANIES, type OperatingCompanyId } from '../../data/operatingCompanies';
 
 interface Props {
   audits: QmsAudit[];
@@ -26,7 +27,7 @@ interface Props {
   documents: ControlledDocument[];
   odooSummary: OdooSyncSummary;
   onNavigateTab: (tab: QmsTab) => void;
-  onOpenOdooSettings: () => void;
+  selectedCompany?: OperatingCompanyId;
 }
 
 export const QmsExecutiveOverview: React.FC<Props> = ({
@@ -37,7 +38,7 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
   documents,
   odooSummary,
   onNavigateTab,
-  onOpenOdooSettings,
+  selectedCompany = 'ALL',
 }) => {
   // Calculations
   const completedAudits = audits.filter(a => a.status === 'COMPLETED');
@@ -69,6 +70,11 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                 Pillar 1: Executive QMS Operating System
               </span>
+              {selectedCompany !== 'ALL' && (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                  {OPERATING_COMPANIES[selectedCompany]?.name || selectedCompany}
+                </span>
+              )}
             </div>
             <h2 className="text-2xl font-bold text-white tracking-tight">
               Quality Management Command Center
@@ -97,12 +103,6 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
               className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5"
             >
               <TrendingUp className="w-4 h-4" /> Live Quality & PPM
-            </button>
-            <button
-              onClick={onOpenOdooSettings}
-              className="px-3 py-2 bg-slate-900/60 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5"
-            >
-              <Zap className="w-4 h-4 text-purple-400" /> Odoo Bridge
             </button>
           </div>
         </div>

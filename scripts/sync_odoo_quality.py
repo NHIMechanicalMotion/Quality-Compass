@@ -228,17 +228,30 @@ def model_exists(models, db: str, uid: int, password: str, model_name: str) -> b
         return False
 
 
+def safe_model_fields(models, db: str, uid: int, password: str, model_name: str, desired_fields: list) -> list:
+    """Filter desired_fields to only those present in the Odoo model schema."""
+    try:
+        model_fields = models.execute_kw(
+            db, uid, password, model_name, "fields_get", [], {"attributes": ["type"]}
+        )
+        return [f for f in desired_fields if f in model_fields]
+    except Exception:
+        # Fallback if fields_get fails: exclude commonly non-existent related fields
+        return [f for f in desired_fields if f not in {"product_tmpl_id"}]
+
+
 def fetch_quality_alerts(models, db: str, uid: int, password: str, limit: int = 500):
     """Fetch records from quality.alert if available."""
     if not model_exists(models, db, uid, password, "quality.alert"):
         print("Model 'quality.alert' not found in this Odoo database.")
         return []
 
-    fields = [
+    desired = [
         "id", "name", "title", "stage_id", "product_id", "product_tmpl_id",
-        "lot_id", "workcenter_id", "workorder_id", "reason_id", "description",
-        "create_date", "write_date", "partner_id", "company_id"
+        "lot_id", "workcenter_id", "workorder_id", "production_id", "reason_id",
+        "description", "create_date", "write_date", "partner_id", "company_id"
     ]
+    fields = safe_model_fields(models, db, uid, password, "quality.alert", desired)
     try:
         records = models.execute_kw(
             db, uid, password,
@@ -258,11 +271,12 @@ def fetch_quality_checks(models, db: str, uid: int, password: str, limit: int = 
         print("Model 'quality.check' not found in this Odoo database.")
         return []
 
-    fields = [
+    desired = [
         "id", "name", "point_id", "quality_state", "product_id",
         "lot_id", "workcenter_id", "workorder_id", "picking_id",
         "create_date", "write_date", "company_id"
     ]
+    fields = safe_model_fields(models, db, uid, password, "quality.check", desired)
     try:
         records = models.execute_kw(
             db, uid, password,
@@ -276,17 +290,18 @@ def fetch_quality_checks(models, db: str, uid: int, password: str, limit: int = 
         return []
 
 
-def fetch_scrap_records(models, db: str, uid: int, password: str, limit: int = 5000):
+def fetch_scrap_records(models, db: str, uid: int, password: str, limit: int = 10000):
     """Fetch shopfloor scrap entries from stock.scrap."""
     if not model_exists(models, db, uid, password, "stock.scrap"):
         print("Model 'stock.scrap' not found in this Odoo database.")
         return []
 
-    fields = [
+    desired = [
         "id", "name", "product_id", "scrap_qty", "lot_id",
         "workorder_id", "production_id", "state", "date_done",
-        "company_id", "create_date"
+        "company_id", "create_date", "origin"
     ]
+    fields = safe_model_fields(models, db, uid, password, "stock.scrap", desired)
     try:
         records = models.execute_kw(
             db, uid, password,
@@ -300,22 +315,23 @@ def fetch_scrap_records(models, db: str, uid: int, password: str, limit: int = 5
         return []
 
 
-def fetch_mo_production(models, db: str, uid: int, password: str, limit: int = 10000):
+def fetch_mo_production(models, db: str, uid: int, password: str, limit: int = 15000):
     """Fetch completed manufacturing orders from mrp.production to track pieces produced."""
     if not model_exists(models, db, uid, password, "mrp.production"):
         print("Model 'mrp.production' not found in this Odoo database.")
         return []
 
-    fields = [
-        "id", "name", "product_id", "product_tmpl_id", "qty_produced",
+    desired = [
+        "id", "name", "product_id", "product_tmpl_id", "qty_produced", "product_qty",
         "state", "date_finished", "company_id", "create_date"
     ]
+    fields = safe_model_fields(models, db, uid, password, "mrp.production", desired)
     try:
         records = models.execute_kw(
             db, uid, password,
             "mrp.production", "search_read",
-            [[("state", "in", ["done", "to_close"])]],
-            {"fields": fields, "limit": limit, "order": "date_finished desc, create_date desc"}
+            [[("state", "in", ["done", "to_close", "progress"])]],
+            {"fields": fields, "limit": limit, "order": "id desc"}
         )
         return records or []
     except Exception as exc:
@@ -329,7 +345,8 @@ def fetch_make_bom_product_ids(models, db: str, uid: int, password: str):
         print("Model 'mrp.bom' not found in this Odoo database.")
         return set(), set()
 
-    fields = ["id", "product_tmpl_id", "product_id", "active"]
+    desired = ["id", "product_tmpl_id", "product_id", "active"]
+    fields = safe_model_fields(models, db, uid, password, "mrp.bom", desired)
     try:
         boms = models.execute_kw(
             db, uid, password,
@@ -378,30 +395,19 @@ def fetch_customer_sales_and_returns_12m(models, db: str, uid: int, password: st
     cutoff_dt = datetime.now(timezone.utc) - timedelta(days=365)
     cutoff_str = cutoff_dt.strftime("%Y-%m-%d 00:00:00")
 
-    # Discover available quantity fields dynamically
-    req_fields = [
+    desired = [
         "id", "name", "product_id", "product_tmpl_id",
-        "location_id", "location_dest_id", "state", "date", "company_id"
+        "location_id", "location_dest_id", "state", "date", "company_id",
+        "quantity", "quantity_done", "product_uom_qty"
     ]
-    try:
-        move_fields = models.execute_kw(
-            db, uid, password, "stock.move", "fields_get", [], {"attributes": ["type"]}
-        )
-        if "quantity" in move_fields:
-            req_fields.append("quantity")
-        if "quantity_done" in move_fields:
-            req_fields.append("quantity_done")
-        if "product_uom_qty" in move_fields:
-            req_fields.append("product_uom_qty")
-    except Exception:
-        req_fields.extend(["quantity", "product_uom_qty"])
+    fields = safe_model_fields(models, db, uid, password, "stock.move", desired)
 
     try:
         moves = models.execute_kw(
             db, uid, password,
             "stock.move", "search_read",
             [[("state", "=", "done"), ("date", ">=", cutoff_str)]],
-            {"fields": req_fields, "limit": limit, "order": "date desc"}
+            {"fields": fields, "limit": limit, "order": "date desc"}
         )
     except Exception as exc:
         print(f"Error reading stock.move: {exc}")
@@ -445,15 +451,35 @@ def fetch_customer_sales_and_returns_12m(models, db: str, uid: int, password: st
 # 3. METRICS AGGREGATION & DATA NORMALIZATION
 # ============================================================================
 
-def normalize_detail_records(alerts, checks, scraps):
+def normalize_detail_records(alerts, checks, scraps, odoo_base_url="https://odoo.nhi-mfg.com"):
     """
     Normalize raw Odoo records into standard Quality Compass detail rows.
-    Strictly preserves real data without synthetic multipliers or placeholder seeds.
+    STRICT OPERATIONAL RULE:
+      Only Quality Alerts are entered into odoo_quality_records.
+      Raw shopfloor scraps are NOT added as standalone quality alert rows.
+      If a scrap transaction is linked to a Quality Alert, that link is preserved
+      on the alert row with direct URLs to Odoo.
     """
     normalized = []
+    clean_base = (odoo_base_url or "https://odoo.nhi-mfg.com").rstrip("/")
 
-    # 1. Process Quality Alerts
+    # Build index of scraps by lot, by MO, and by workorder for fast cross-referencing
+    scraps_by_lot = {}
+    scraps_by_mo = {}
+    scraps_by_wo = {}
+    for s in scraps:
+        lot = s.get("lot_id")
+        if lot and isinstance(lot, (list, tuple)):
+            scraps_by_lot.setdefault(lot[0], []).append(s)
+        prod = s.get("production_id")
+        if prod and isinstance(prod, (list, tuple)):
+            scraps_by_mo.setdefault(prod[0], []).append(s)
+        wo = s.get("workorder_id")
+        if wo and isinstance(wo, (list, tuple)):
+            scraps_by_wo.setdefault(wo[0], []).append(s)
+
     for a in alerts:
+        a_id = a["id"]
         product_info = a.get("product_id") or []
         product_name = product_info[1] if len(product_info) > 1 else ""
         product_sku = product_name.split(" ")[0].strip("[]") if "[" in product_name else "SKU-ALERT"
@@ -465,10 +491,16 @@ def normalize_detail_records(alerts, checks, scraps):
         workcenter = wc_info[1] if len(wc_info) > 1 else "SHOPFLOOR"
 
         lot_info = a.get("lot_id") or []
+        lot_id_val = lot_info[0] if len(lot_info) > 0 and isinstance(lot_info, (list, tuple)) else None
         lot_number = lot_info[1] if len(lot_info) > 1 else "LOT-UNKNOWN"
 
         wo_info = a.get("workorder_id") or []
+        wo_id_val = wo_info[0] if len(wo_info) > 0 and isinstance(wo_info, (list, tuple)) else None
         work_order = wo_info[1] if len(wo_info) > 1 else "WO-GENERAL"
+
+        prod_info = a.get("production_id") or []
+        mo_id_val = prod_info[0] if len(prod_info) > 0 and isinstance(prod_info, (list, tuple)) else None
+        mo_name = prod_info[1] if len(prod_info) > 1 else ""
 
         stage_info = a.get("stage_id") or []
         stage_name = stage_info[1] if len(stage_info) > 1 else "New"
@@ -485,64 +517,57 @@ def normalize_detail_records(alerts, checks, scraps):
 
         date_val = (a.get("create_date") or datetime.now(timezone.utc).isoformat())[:10]
 
-        # Use actual recorded quantities if available, never fake 1000/1 seeds
-        qty_inspected = int(a.get("qty_inspected") or a.get("quantity") or 0)
-        qty_rejected = int(a.get("qty_defective") or a.get("qty") or 1)
-        calc_ppm = round((qty_rejected / qty_inspected) * 1_000_000) if qty_inspected > 0 else 0
+        # Cross-reference matching scrap transactions
+        linked_scraps = []
+        if lot_id_val and lot_id_val in scraps_by_lot:
+            linked_scraps.extend(scraps_by_lot[lot_id_val])
+        if mo_id_val and mo_id_val in scraps_by_mo:
+            for s in scraps_by_mo[mo_id_val]:
+                if s not in linked_scraps:
+                    linked_scraps.append(s)
+        if wo_id_val and wo_id_val in scraps_by_wo:
+            for s in scraps_by_wo[wo_id_val]:
+                if s not in linked_scraps:
+                    linked_scraps.append(s)
+
+        linked_scrap_id = linked_scraps[0]["id"] if linked_scraps else None
+        linked_scrap_url = f"{clean_base}/web#id={linked_scrap_id}&model=stock.scrap&view_type=form" if linked_scrap_id else None
+        linked_scrap_qty = sum(float(s.get("scrap_qty") or 0.0) for s in linked_scraps) if linked_scraps else 0.0
+
+        linked_mo_id = mo_id_val
+        linked_mo_url = f"{clean_base}/web#id={mo_id_val}&model=mrp.production&view_type=form" if mo_id_val else None
+
+        company_info = a.get("company_id") or []
+        company_id_val = company_info[0] if len(company_info) > 0 and isinstance(company_info, (list, tuple)) else None
+        company_name_val = company_info[1] if len(company_info) > 1 else ""
 
         normalized.append({
-            "id": f"odoo-alert-{a['id']}",
-            "alert_code": a.get("name") or f"QA-{a['id']}",
+            "id": f"odoo-alert-{a_id}",
+            "alert_code": a.get("name") or f"QA-{a_id}",
             "product_sku": product_sku,
             "product_name": product_name or "Component",
             "customer_name": partner_name,
             "workcenter": workcenter,
             "lot_number": lot_number,
-            "work_order": work_order,
+            "work_order": mo_name or work_order,
             "defect_type": defect_type,
-            "quantity_inspected": qty_inspected,
-            "quantity_rejected": qty_rejected,
-            "calculated_ppm": calc_ppm,
+            "quantity_inspected": 0,
+            "quantity_rejected": 1,
+            "calculated_ppm": 0,
             "scrap_cost": 0.00,
             "date": date_val,
             "stage": stage_mapped,
             "is_quarantined_mrb": True if stage_mapped in ["New", "Confirmed", "Action Proposed"] else False,
             "notes": a.get("description") or "",
-            "synced_at": datetime.now(timezone.utc).isoformat(),
-        })
-
-    # 2. Process Scrap records (actual shopfloor scrap entries)
-    for s in scraps[:500]:
-        p_info = s.get("product_id") or []
-        p_name = p_info[1] if len(p_info) > 1 else "Scrapped Product"
-        qty = float(s.get("scrap_qty") or 0.0)
-        date_val = (s.get("date_done") or s.get("create_date") or datetime.now(timezone.utc).isoformat())[:10]
-
-        prod_info = s.get("production_id") or []
-        wo_info = s.get("workorder_id") or []
-        mo_name = prod_info[1] if len(prod_info) > 1 else (wo_info[1] if len(wo_info) > 1 else "STOCK-SCRAP")
-
-        lot_info = s.get("lot_id") or []
-        lot_num = lot_info[1] if len(lot_info) > 1 else "SCRAP-LOT"
-
-        normalized.append({
-            "id": f"odoo-scrap-{s['id']}",
-            "alert_code": s.get("name") or f"SP-{s['id']}",
-            "product_sku": p_name.split(" ")[0].strip("[]") if "[" in p_name else "SKU-SCRAP",
-            "product_name": p_name,
-            "customer_name": "NHI Mechanical Motion",
-            "workcenter": "SHOPFLOOR",
-            "lot_number": lot_num,
-            "work_order": mo_name,
-            "defect_type": "Manufacturing Scrap" if s.get("production_id") else "Inventory Scrap",
-            "quantity_inspected": 0,
-            "quantity_rejected": int(round(qty)),
-            "calculated_ppm": 0,
-            "scrap_cost": 0.00,
-            "date": date_val,
-            "stage": "Resolved",
-            "is_quarantined_mrb": False,
-            "notes": f"Scrapped quantity: {qty}",
+            "odoo_id": a_id,
+            "odoo_url": f"{clean_base}/web#id={a_id}&model=quality.alert&view_type=form",
+            "linked_scrap_id": linked_scrap_id,
+            "linked_scrap_url": linked_scrap_url,
+            "linked_scrap_qty": linked_scrap_qty,
+            "linked_mo_id": linked_mo_id,
+            "linked_mo_url": linked_mo_url,
+            "company_id": company_id_val,
+            "company_name": company_name_val,
             "synced_at": datetime.now(timezone.utc).isoformat(),
         })
 
@@ -571,7 +596,7 @@ def compute_rollups(mo_records, scrap_records, shipments_12m, returns_12m, make_
     mo_by_month = {}
     total_mo_pieces_produced = 0.0
     for mo in mo_records:
-        qty = float(mo.get("qty_produced") or 0.0)
+        qty = float(mo.get("qty_produced") or (mo.get("product_qty") if mo.get("state") in ["done", "to_close"] else 0.0) or 0.0)
         total_mo_pieces_produced += qty
         dt = mo.get("date_finished") or mo.get("create_date") or ""
         ym = dt[:7] if len(dt) >= 7 else datetime.now(timezone.utc).strftime("%Y-%m")
@@ -580,7 +605,9 @@ def compute_rollups(mo_records, scrap_records, shipments_12m, returns_12m, make_
     mo_scrap_by_month = {}
     total_mo_scrap_qty = 0.0
     for s in scrap_records:
-        if s.get("production_id"):
+        origin = str(s.get("origin") or "")
+        is_mo_scrap = bool(s.get("production_id") or s.get("workorder_id") or ("MO" in origin) or ("WH/MO" in origin))
+        if is_mo_scrap:
             qty = float(s.get("scrap_qty") or 0.0)
             total_mo_scrap_qty += qty
             dt = s.get("date_done") or s.get("create_date") or ""
@@ -661,13 +688,13 @@ def compute_rollups(mo_records, scrap_records, shipments_12m, returns_12m, make_
         })
 
     # -------------------------------------------------------------------------
-    # D. Defect Pareto Distribution
+    # D. Defect Pareto Distribution (Strictly from Quality Alerts)
     # -------------------------------------------------------------------------
     pareto_map = {}
     for r in records:
         reason = r["defect_type"]
         p = pareto_map.setdefault(reason, {"count": 0, "cost": 0.0})
-        p["count"] += (r["quantity_rejected"] or 1)
+        p["count"] += 1
         p["cost"] += float(r.get("scrap_cost") or 0.0)
 
     sorted_pareto = sorted(pareto_map.items(), key=lambda x: x[1]["count"], reverse=True)
@@ -694,11 +721,11 @@ def compute_rollups(mo_records, scrap_records, shipments_12m, returns_12m, make_
     for r in records:
         wc = r["workcenter"]
         w = wc_map.setdefault(wc, {"total": 0, "defects": 0, "scrap": 0.0, "defects_dict": {}})
-        w["total"] += (r["quantity_inspected"] or 1)
-        w["defects"] += (r["quantity_rejected"] or 1)
+        w["total"] += 1
+        w["defects"] += 1
         w["scrap"] += float(r.get("scrap_cost") or 0.0)
         d_type = r["defect_type"]
-        w["defects_dict"][d_type] = w["defects_dict"].get(d_type, 0) + (r["quantity_rejected"] or 1)
+        w["defects_dict"][d_type] = w["defects_dict"].get(d_type, 0) + 1
 
     workcenter_list = []
     for wc, data in sorted(wc_map.items()):
@@ -748,14 +775,28 @@ def upsert_to_supabase(sb_client: Client, records, rollups):
 
     written = 0
 
-    # 1. Upsert detail records
+    # 1. Upsert detail records (clean Quality Alerts with Odoo URLs & linked scrap)
     if records:
         try:
             res = sb_client.table("odoo_quality_records").upsert(records, on_conflict="id").execute()
             written += len(records)
-            print(f"Upserted {len(records)} records into 'odoo_quality_records'.")
+            print(f"Upserted {len(records)} Quality Alert records into 'odoo_quality_records'.")
         except Exception as exc:
-            print(f"Notice (odoo_quality_records): {exc}")
+            # If extra columns don't exist yet, fallback to base columns
+            print(f"Notice (odoo_quality_records full upsert): {exc}")
+            base_cols = [
+                "id", "alert_code", "product_sku", "product_name", "customer_name",
+                "workcenter", "lot_number", "work_order", "defect_type",
+                "quantity_inspected", "quantity_rejected", "calculated_ppm",
+                "scrap_cost", "date", "stage", "is_quarantined_mrb", "notes", "synced_at"
+            ]
+            trimmed = [{k: r[k] for k in base_cols if k in r} for r in records]
+            try:
+                res = sb_client.table("odoo_quality_records").upsert(trimmed, on_conflict="id").execute()
+                written += len(trimmed)
+                print(f"Upserted {len(trimmed)} records using base columns into 'odoo_quality_records'.")
+            except Exception as exc2:
+                print(f"Notice (odoo_quality_records base upsert): {exc2}")
 
     # 2. Upsert PPM monthly metrics (resilient with core-column fallback)
     if rollups.get("ppm_trends"):
@@ -764,7 +805,6 @@ def upsert_to_supabase(sb_client: Client, records, rollups):
             print(f"Upserted {len(rollups['ppm_trends'])} periods into 'odoo_quality_ppm_metrics'.")
         except Exception as exc:
             print(f"Notice (odoo_quality_ppm_metrics full upsert): {exc}")
-            # Fallback to core columns if new columns do not exist in DB yet
             core_columns = ["period", "total_units", "defective_units", "ppm", "target_ppm", "fpy_percentage", "scrap_dollars", "scrap_percentage", "synced_at"]
             trimmed = [{k: row[k] for k in core_columns if k in row} for row in rollups["ppm_trends"]]
             try:
@@ -862,9 +902,9 @@ def main():
         shipments_12m, returns_12m = fetch_customer_sales_and_returns_12m(models, used_db, uid, password)
         print(f"Retrieved {len(shipments_12m)} customer shipments and {len(returns_12m)} customer returns (Rolling 12M).")
 
-        # Normalize & Calculate Rollups
-        records = normalize_detail_records(alerts, checks, scraps)
-        print(f"Compiled {len(records)} normalized quality detail records.")
+        # Normalize Quality Alerts (linking any matching scrap, and generating direct Odoo URLs)
+        records = normalize_detail_records(alerts, checks, scraps, url)
+        print(f"Compiled {len(records)} normalized Quality Alert detail records.")
 
         rollups = compute_rollups(mos, scraps, shipments_12m, returns_12m, make_pids, make_tids, records)
         print(f"Calculated In-Process MO Scrap PPM: {rollups['overall_ppm']} | First Pass Yield: {rollups['fpy_percentage']}% (Pieces Produced: {rollups['mo_pieces_produced']}, MO Scrap: {rollups['mo_scrap_qty']})")
@@ -874,7 +914,7 @@ def main():
         written_count = upsert_to_supabase(sb, records, rollups)
 
         duration = time.time() - start_time
-        summary_msg = f"Synced {len(records)} quality records. In-Process MO Scrap PPM: {rollups['overall_ppm']}, FG Return PPM: {rollups['fg_total_ppm']}."
+        summary_msg = f"Synced {len(records)} Quality Alerts. In-Process MO Scrap PPM: {rollups['overall_ppm']}, FG Return PPM: {rollups['fg_total_ppm']}."
         log_sync_result(sb, "SUCCESS", written_count, duration, summary_msg)
 
         print(f"=== Sync Complete in {duration:.2f}s ===")
