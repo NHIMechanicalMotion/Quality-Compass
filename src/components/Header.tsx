@@ -18,7 +18,13 @@ import {
   ChevronDown,
   ChevronUp,
   Menu,
+  User,
+  Lock,
+  LogOut,
+  HardHat,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { AuthModal } from './auth/AuthModal';
 import type { StandardType, AuditReport } from '../types/cad';
 import type { PartFamilyProfile } from '../types/templates';
 import { PART_FAMILY_PROFILES } from '../data/partFamilyTemplates';
@@ -75,7 +81,10 @@ export const Header: React.FC<HeaderProps> = ({
   language,
   onChangeLanguage,
 }) => {
+  const { currentUser, logout } = useAuth();
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMobileCollapsed, setIsMobileCollapsed] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth < 1024;
@@ -83,11 +92,15 @@ export const Header: React.FC<HeaderProps> = ({
     return false;
   });
   const toolsMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (toolsMenuRef.current && !toolsMenuRef.current.contains(event.target as Node)) {
         setIsToolsMenuOpen(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -711,8 +724,116 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
         )}
+
+        {/* Visual Divider */}
+        <div className="h-6 w-px bg-slate-700/60 mx-0.5 hidden sm:block" />
+
+        {/* Enterprise User Authentication & Profile Menu */}
+        <div className="relative flex items-center shrink-0" ref={userMenuRef}>
+          {currentUser ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsUserMenuOpen(prev => !prev)}
+                className="flex items-center gap-2 h-9 px-3 rounded-xl bg-[#0B2545] hover:bg-[#132E58] border border-[#132E58] text-xs font-semibold text-white shadow-md cursor-pointer transition-colors"
+                title={`Active User: ${currentUser.person.first_name} ${currentUser.person.last_name}`}
+              >
+                <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-[#81C341] border border-[#81C341]/40 flex items-center justify-center shrink-0">
+                  {currentUser.isKiosk ? <HardHat className="w-3 h-3 text-[#81C341]" /> : <User className="w-3 h-3 text-cyan-300" />}
+                </div>
+                <span className="hidden sm:inline font-bold">
+                  {currentUser.person.first_name} {currentUser.person.last_name}
+                </span>
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50 hidden md:inline">
+                  {currentUser.person.job_title || (currentUser.isKiosk ? 'Kiosk' : 'Staff')}
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* User Dropdown Menu */}
+              {isUserMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-72 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl z-50 p-2 space-y-2 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400">
+                      Authenticated Session
+                    </div>
+                    <div className="text-sm font-bold text-white mt-0.5">
+                      {currentUser.person.first_name} {currentUser.person.last_name}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {currentUser.person.job_title || 'Operator'} &bull; Badge #{currentUser.person.employee_number}
+                    </div>
+                    <div className="text-[11px] font-mono text-cyan-400 mt-1">
+                      Company: {currentUser.person.operating_company}
+                    </div>
+                  </div>
+
+                  {currentUser.roles.length > 0 && (
+                    <div className="px-1 py-1">
+                      <div className="text-[10px] font-mono uppercase text-slate-400 font-bold mb-1">
+                        Active Roles ({currentUser.roles.length})
+                      </div>
+                      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                        {currentUser.roles.map((r, idx) => (
+                          <span
+                            key={idx}
+                            className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700"
+                          >
+                            {r.module_code}:{r.role_code}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="border-t border-slate-800 pt-1 space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        setIsAuthModalOpen(true);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <User className="w-4 h-4 text-blue-400" />
+                      <span>Switch User / Kiosk</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsUserMenuOpen(false);
+                        await logout();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:text-rose-200 hover:bg-rose-950/40 flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <LogOut className="w-4 h-4 text-rose-400" />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="flex items-center gap-2 h-9 px-3.5 rounded-xl bg-gradient-to-r from-blue-700 to-[#132E58] hover:from-blue-600 hover:to-[#0B2545] border border-blue-400/50 text-xs font-bold text-white shadow-md shadow-blue-900/30 cursor-pointer transition-all"
+              title="Sign in to Quality Compass (Floor Kiosk or Office)"
+            >
+              <Lock className="w-3.5 h-3.5 text-cyan-300" />
+              <span>Sign In</span>
+            </button>
+          )}
+        </div>
         </div>
       </div>
+
+      {/* Enterprise Authentication Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+      />
     </header>
   );
 };

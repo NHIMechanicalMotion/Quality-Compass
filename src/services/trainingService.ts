@@ -113,12 +113,8 @@ export const SEED_RECORDS: TrainingRecord[] = [
   { id: 'tr-4', employee_id: 'emp-1034', training_id: 'trn-iso-policy', completion_date: '2024-05-10', expiration_date: '2026-05-10', trainer_name: 'Quality Lead', result: 'PASS', score: 92, recorded_by: 'System', notes: 'Biennial QMS compliance - EXPIRED.' }
 ];
 
-export const SEED_USERS: AppUser[] = [
-  { id: 'usr-1002', employee_id: 'emp-1002', system_role: 'SUPERVISOR', pin_hash: '1234', is_active: true, employee_name: 'Jack Miller', employee_number: '1002' },
-  { id: 'usr-1015', employee_id: 'emp-1015', system_role: 'OPERATOR', pin_hash: '1234', is_active: true, employee_name: 'Marcus Vance', employee_number: '1015' },
-  { id: 'usr-1022', employee_id: 'emp-1022', system_role: 'OPERATOR', pin_hash: '1234', is_active: true, employee_name: 'Sarah Jenkins', employee_number: '1022' },
-  { id: 'usr-1070', employee_id: 'emp-1070', system_role: 'ADMIN', pin_hash: '1234', is_active: true, employee_name: 'Lisa Ray', employee_number: '1070' }
-];
+// Deprecated: User authentication now managed dynamically via public.people and public.user_accounts
+export const SEED_USERS: AppUser[] = [];
 
 // Helper to load or initialize LocalStorage collection
 function getLocalCollection<T>(key: string, defaultSeed: T[]): T[] {

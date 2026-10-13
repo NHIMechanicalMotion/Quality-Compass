@@ -36,8 +36,12 @@ import { extractTitleBlockMetadata, applyExtractedTitleBlock } from './utils/tit
 import { getStoredPartFamilyProfiles, savePartFamilyProfile, resetPartFamilyProfilesToDefault } from './utils/templateManager';
 import { OPERATING_COMPANIES, type OperatingCompanyId } from './data/operatingCompanies';
 import { saveAs } from 'file-saver';
+import { Clock } from 'lucide-react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { ForcePinChangeModal } from './components/auth/ForcePinChangeModal';
+import { InactivityWarningModal } from './components/auth/InactivityWarningModal';
 
-export function App() {
+function QualityCompassMain() {
   // Operating company scope (NHI Mechanical Motion LLC, NHI, Terre, Mantis, Makers)
   const [selectedCompany, setSelectedCompany] = useState<OperatingCompanyId>('ALL');
 
@@ -1069,6 +1073,38 @@ export function App() {
       />
 
     </div>
+  );
+}
+
+function AppGlobalModals() {
+  const { pinMustChange, inactivityNotice, clearInactivityNotice } = useAuth();
+  return (
+    <>
+      <ForcePinChangeModal isOpen={pinMustChange} />
+      <InactivityWarningModal />
+      {inactivityNotice && (
+        <div className="fixed bottom-6 right-6 z-50 p-4 rounded-xl bg-slate-900 border border-amber-500/60 shadow-2xl text-xs text-amber-200 flex items-center gap-3 animate-in slide-in-from-bottom duration-200">
+          <Clock className="w-5 h-5 text-amber-400 shrink-0" />
+          <div className="font-semibold">{inactivityNotice}</div>
+          <button
+            type="button"
+            onClick={clearInactivityNotice}
+            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-bold cursor-pointer transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AppGlobalModals />
+      <QualityCompassMain />
+    </AuthProvider>
   );
 }
 

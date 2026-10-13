@@ -45,6 +45,7 @@ import { RecordTrainingModal } from './RecordTrainingModal';
 import { SupervisorSignoffModal } from './SupervisorSignoffModal';
 import { CsvImportModal } from './CsvImportModal';
 import { AdminExportModal } from './AdminExportModal';
+import { useAuth } from '../../context/AuthContext';
 
 interface TrainingPhase1RootProps {
   onExitToQualityCompass?: () => void;
@@ -69,14 +70,36 @@ export const TrainingPhase1Root: React.FC<TrainingPhase1RootProps> = ({
     return false;
   });
 
-  // Current Logged-in User Session (defaults to Lisa Ray / Admin for testing, easily switchable)
-  const [currentUser, setCurrentUser] = useState<CurrentUserSession>({
-    role: 'ADMIN',
-    employeeId: 'emp-1070',
-    name: 'Lisa Ray',
-    badgeNumber: '1070',
-    department: 'Quality Assurance & Metrology'
-  });
+  // Current Logged-in User Session (from unified enterprise AuthContext)
+  const { currentUser: authUser } = useAuth();
+
+  const currentUser: CurrentUserSession = React.useMemo(() => {
+    if (!authUser) {
+      return {
+        role: 'OPERATOR',
+        employeeId: '',
+        name: 'Sign In Required',
+        badgeNumber: '—',
+        department: 'Shop Floor',
+      };
+    }
+    let trainingRole: any = 'OPERATOR';
+    if (authUser.roles.some((r) => r.module_code === 'SYSTEM_ADMIN' || r.role_code === 'ADMIN')) {
+      trainingRole = 'ADMIN';
+    } else if (authUser.roles.some((r) => r.role_code === 'SUPERVISOR')) {
+      trainingRole = 'SUPERVISOR';
+    } else if (authUser.roles.some((r) => r.role_code === 'TRAINER')) {
+      trainingRole = 'TRAINER';
+    }
+
+    return {
+      role: trainingRole,
+      employeeId: authUser.person.id,
+      name: `${authUser.person.first_name} ${authUser.person.last_name}`,
+      badgeNumber: authUser.person.employee_number || '',
+      department: authUser.person.job_title || authUser.person.operating_company,
+    };
+  }, [authUser]);
 
   // Database / Local Store Collections
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -214,13 +237,15 @@ export const TrainingPhase1Root: React.FC<TrainingPhase1RootProps> = ({
             <button
               type="button"
               onClick={() => setIsLoginModalOpen(true)}
-              className="min-h-[44px] px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-base font-bold text-slate-200 flex items-center gap-2 transition-colors"
-              title="Click to switch user or role"
+              className="min-h-[44px] px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-base font-bold text-slate-200 flex items-center gap-2 transition-colors cursor-pointer"
+              title={authUser ? `Logged in as ${currentUser.name} (${currentUser.role}). Click to switch or sign out.` : 'Click to sign in'}
             >
               <HardHat className="w-4 h-4 text-amber-400" />
               <span className="hidden sm:inline">{currentUser.name}</span>
-              <span className="px-2 py-0.5 rounded-md text-sm font-bold bg-blue-500/20 text-blue-300">
-                {currentUser.role}
+              <span className={`px-2 py-0.5 rounded-md text-sm font-bold ${
+                authUser ? 'bg-blue-500/20 text-blue-300' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+              }`}>
+                {authUser ? currentUser.role : 'Sign In'}
               </span>
             </button>
 
@@ -437,8 +462,6 @@ export const TrainingPhase1Root: React.FC<TrainingPhase1RootProps> = ({
       <TrainingLoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
-        currentUser={currentUser}
-        onSelectUser={setCurrentUser}
       />
 
       <RecordTrainingModal
