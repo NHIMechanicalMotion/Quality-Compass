@@ -225,27 +225,13 @@ BEGIN
   END IF;
 
   -- Update PIN and clear pin_must_change
+  -- Note: The trigger trg_audit_user_accounts automatically records the PIN_RESET in user_management_audit_log
   UPDATE public.user_accounts
   SET pin_hash = extensions.crypt(v_clean_new, extensions.gen_salt('bf', 10)),
       pin_must_change = FALSE,
       failed_attempts = 0,
       is_locked = FALSE
   WHERE id = v_rec.id;
-
-  -- Record audit log
-  INSERT INTO public.user_management_audit_log (
-    person_id,
-    action,
-    changed_by,
-    old_state,
-    new_state
-  ) VALUES (
-    p_person_id,
-    'PIN_CHANGED',
-    COALESCE(public.current_person_id(), p_person_id),
-    jsonb_build_object('pin_must_change', v_rec.pin_must_change),
-    jsonb_build_object('pin_must_change', false, 'updated_at', NOW())
-  );
 
   RETURN jsonb_build_object('success', true, 'message', 'PIN updated successfully.');
 END;
@@ -262,11 +248,9 @@ CREATE OR REPLACE FUNCTION public.reset_user_pin(
 )
 RETURNS JSONB AS $$
 DECLARE
-  v_caller UUID;
   v_clean_temp TEXT;
   v_account_id UUID;
 BEGIN
-  v_caller := public.current_person_id();
   v_clean_temp := TRIM(p_temporary_pin);
 
   IF v_clean_temp !~ '^[0-9]{4}$' THEN
@@ -281,6 +265,7 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'message', 'Target user account not found.');
   END IF;
 
+  -- Note: The trigger trg_audit_user_accounts automatically records the PIN_RESET in user_management_audit_log
   UPDATE public.user_accounts
   SET pin_hash = extensions.crypt(v_clean_temp, extensions.gen_salt('bf', 10)),
       pin_must_change = TRUE,
@@ -288,18 +273,6 @@ BEGIN
       is_locked = FALSE,
       locked_at = NULL
   WHERE id = v_account_id;
-
-  INSERT INTO public.user_management_audit_log (
-    person_id,
-    action,
-    changed_by,
-    new_state
-  ) VALUES (
-    p_target_person_id,
-    'PIN_RESET',
-    v_caller,
-    jsonb_build_object('pin_must_change', true, 'reset_by', v_caller, 'reset_at', NOW())
-  );
 
   RETURN jsonb_build_object('success', true, 'message', 'Temporary PIN assigned. User will be forced to change PIN on next login.');
 END;
@@ -313,28 +286,17 @@ CREATE OR REPLACE FUNCTION public.unlock_user_account(
   p_target_person_id UUID
 )
 RETURNS JSONB AS $$
-DECLARE
-  v_caller UUID;
 BEGIN
-  v_caller := public.current_person_id();
-
+  -- Note: The trigger trg_audit_user_accounts automatically records the UNLOCK in user_management_audit_log
   UPDATE public.user_accounts
   SET is_locked = FALSE,
       failed_attempts = 0,
       locked_at = NULL
   WHERE person_id = p_target_person_id;
 
-  INSERT INTO public.user_management_audit_log (
-    person_id,
-    action,
-    changed_by,
-    new_state
-  ) VALUES (
-    p_target_person_id,
-    'ACCOUNT_UNLOCKED',
-    v_caller,
-    jsonb_build_object('is_locked', false, 'unlocked_by', v_caller, 'unlocked_at', NOW())
-  );
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'message', 'Target user account not found.');
+  END IF;
 
   RETURN jsonb_build_object('success', true, 'message', 'Account unlocked successfully.');
 END;
