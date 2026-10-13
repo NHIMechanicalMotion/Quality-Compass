@@ -13,7 +13,6 @@ import {
   FileSpreadsheet, 
   CheckCircle2, 
   AlertTriangle, 
-  AlertCircle, 
   Download, 
   ArrowRight, 
   RefreshCw, 
@@ -22,9 +21,7 @@ import {
   Eye, 
   EyeOff, 
   HardHat, 
-  Building2, 
-  KeyRound,
-  FileCheck
+  KeyRound
 } from 'lucide-react';
 import { 
   validateRosterCsv, 
@@ -35,8 +32,7 @@ import {
 import type { 
   RosterValidationSummary, 
   RosterImportExecutionResult, 
-  ParsedRosterRow, 
-  HandoutRecord 
+  ParsedRosterRow 
 } from '../../types/rosterImport';
 
 interface PersonnelRosterImportModalProps {
