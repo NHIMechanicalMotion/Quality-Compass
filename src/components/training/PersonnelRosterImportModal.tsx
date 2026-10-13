@@ -63,8 +63,6 @@ export const PersonnelRosterImportModal: React.FC<PersonnelRosterImportModalProp
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
-
   // Handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -170,6 +168,8 @@ export const PersonnelRosterImportModal: React.FC<PersonnelRosterImportModalProp
         return 'bg-[#70c128]/20 text-[#70c128] border-[#70c128]/40';
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">

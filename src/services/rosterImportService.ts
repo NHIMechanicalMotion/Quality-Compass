@@ -121,7 +121,7 @@ export async function validateRosterCsv(
   const rawRows = parseCsvText(csvText);
   const people = existingPeopleList || await fetchPeople(true);
   const peopleByBadge = new Map<string, Person>(
-    people.map((p) => [p.employee_number.trim().toLowerCase(), p])
+    people.filter((p) => p && p.employee_number).map((p) => [p.employee_number.trim().toLowerCase(), p])
   );
 
   const seenInFileBadges = new Set<string>();
