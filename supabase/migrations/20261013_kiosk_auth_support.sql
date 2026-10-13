@@ -403,3 +403,6 @@ BEGIN
         is_locked = FALSE,
         is_active = TRUE;
 END $$;
+
+-- Reload PostgREST schema cache so new functions and tables are immediately recognized
+NOTIFY pgrst, 'reload schema';

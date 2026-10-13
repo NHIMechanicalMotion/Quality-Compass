@@ -110,11 +110,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       const res = await loginFloor(badgeInput, pinInput);
       if (res.success && res.user) {
-        setSuccessMessage(`Welcome, ${res.user.person.first_name} ${res.user.person.last_name}! Kiosk verified.`);
-        setTimeout(() => {
-          setSuccessMessage(null);
+        if (res.user.pinMustChange) {
           onClose();
-        }, 800);
+        } else {
+          setSuccessMessage(`Welcome, ${res.user.person.first_name} ${res.user.person.last_name}! Kiosk verified.`);
+          setTimeout(() => {
+            setSuccessMessage(null);
+            onClose();
+          }, 800);
+        }
       } else {
         setErrorMessage(res.error || 'Authentication failed.');
         setErrorCode(res.errorCode || 'UNKNOWN');
