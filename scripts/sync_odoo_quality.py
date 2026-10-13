@@ -21,7 +21,7 @@ import os
 import sys
 import time
 import xmlrpc.client
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, urlunparse
 
 try:
@@ -276,7 +276,7 @@ def fetch_quality_checks(models, db: str, uid: int, password: str, limit: int = 
         return []
 
 
-def fetch_scrap_records(models, db: str, uid: int, password: str, limit: int = 1000):
+def fetch_scrap_records(models, db: str, uid: int, password: str, limit: int = 5000):
     """Fetch shopfloor scrap entries from stock.scrap."""
     if not model_exists(models, db, uid, password, "stock.scrap"):
         print("Model 'stock.scrap' not found in this Odoo database.")
@@ -300,25 +300,169 @@ def fetch_scrap_records(models, db: str, uid: int, password: str, limit: int = 1
         return []
 
 
+def fetch_mo_production(models, db: str, uid: int, password: str, limit: int = 10000):
+    """Fetch completed manufacturing orders from mrp.production to track pieces produced."""
+    if not model_exists(models, db, uid, password, "mrp.production"):
+        print("Model 'mrp.production' not found in this Odoo database.")
+        return []
+
+    fields = [
+        "id", "name", "product_id", "product_tmpl_id", "qty_produced",
+        "state", "date_finished", "company_id", "create_date"
+    ]
+    try:
+        records = models.execute_kw(
+            db, uid, password,
+            "mrp.production", "search_read",
+            [[("state", "in", ["done", "to_close"])]],
+            {"fields": fields, "limit": limit, "order": "date_finished desc, create_date desc"}
+        )
+        return records or []
+    except Exception as exc:
+        print(f"Error reading mrp.production: {exc}")
+        return []
+
+
+def fetch_make_bom_product_ids(models, db: str, uid: int, password: str):
+    """Identify manufactured (Make) products via active bills of material in mrp.bom."""
+    if not model_exists(models, db, uid, password, "mrp.bom"):
+        print("Model 'mrp.bom' not found in this Odoo database.")
+        return set(), set()
+
+    fields = ["id", "product_tmpl_id", "product_id", "active"]
+    try:
+        boms = models.execute_kw(
+            db, uid, password,
+            "mrp.bom", "search_read",
+            [[("active", "=", True)]],
+            {"fields": fields, "limit": 10000}
+        )
+        bom_prod_ids = set()
+        bom_tmpl_ids = set()
+        for b in (boms or []):
+            p = b.get("product_id")
+            if p and isinstance(p, (list, tuple)):
+                bom_prod_ids.add(p[0])
+            pt = b.get("product_tmpl_id")
+            if pt and isinstance(pt, (list, tuple)):
+                bom_tmpl_ids.add(pt[0])
+        return bom_prod_ids, bom_tmpl_ids
+    except Exception as exc:
+        print(f"Error reading mrp.bom: {exc}")
+        return set(), set()
+
+
+def fetch_customer_sales_and_returns_12m(models, db: str, uid: int, password: str, limit: int = 25000):
+    """
+    Fetch customer outgoing deliveries (Sold) and incoming returns (Returns)
+    over the rolling 12 months from stock.move.
+    """
+    if not model_exists(models, db, uid, password, "stock.move"):
+        print("Model 'stock.move' not found in this Odoo database.")
+        return [], []
+
+    # 1. Identify customer locations
+    customer_loc_ids = set()
+    if model_exists(models, db, uid, password, "stock.location"):
+        try:
+            c_ids = models.execute_kw(
+                db, uid, password,
+                "stock.location", "search",
+                [[("usage", "=", "customer")]]
+            )
+            if c_ids:
+                customer_loc_ids = set(c_ids)
+        except Exception as e:
+            print(f"Notice querying customer locations: {e}")
+
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=365)
+    cutoff_str = cutoff_dt.strftime("%Y-%m-%d 00:00:00")
+
+    # Discover available quantity fields dynamically
+    req_fields = [
+        "id", "name", "product_id", "product_tmpl_id",
+        "location_id", "location_dest_id", "state", "date", "company_id"
+    ]
+    try:
+        move_fields = models.execute_kw(
+            db, uid, password, "stock.move", "fields_get", [], {"attributes": ["type"]}
+        )
+        if "quantity" in move_fields:
+            req_fields.append("quantity")
+        if "quantity_done" in move_fields:
+            req_fields.append("quantity_done")
+        if "product_uom_qty" in move_fields:
+            req_fields.append("product_uom_qty")
+    except Exception:
+        req_fields.extend(["quantity", "product_uom_qty"])
+
+    try:
+        moves = models.execute_kw(
+            db, uid, password,
+            "stock.move", "search_read",
+            [[("state", "=", "done"), ("date", ">=", cutoff_str)]],
+            {"fields": req_fields, "limit": limit, "order": "date desc"}
+        )
+    except Exception as exc:
+        print(f"Error reading stock.move: {exc}")
+        return [], []
+
+    customer_shipments = []
+    customer_returns = []
+
+    for m in (moves or []):
+        loc_src = m.get("location_id")
+        loc_dst = m.get("location_dest_id")
+        src_id = loc_src[0] if loc_src and isinstance(loc_src, (list, tuple)) else None
+        dst_id = loc_dst[0] if loc_dst and isinstance(loc_dst, (list, tuple)) else None
+        src_name = (loc_src[1] if loc_src and isinstance(loc_src, (list, tuple)) else "").lower()
+        dst_name = (loc_dst[1] if loc_dst and isinstance(loc_dst, (list, tuple)) else "").lower()
+
+        is_src_customer = (src_id in customer_loc_ids) or ("customer" in src_name)
+        is_dst_customer = (dst_id in customer_loc_ids) or ("customer" in dst_name)
+
+        qty = float(m.get("quantity") or m.get("quantity_done") or m.get("product_uom_qty") or 0.0)
+        if qty <= 0:
+            continue
+
+        item = {
+            "id": m.get("id"),
+            "product_id": m.get("product_id"),
+            "product_tmpl_id": m.get("product_tmpl_id"),
+            "quantity": qty,
+            "date": (m.get("date") or "")[:10],
+        }
+
+        if is_dst_customer and not is_src_customer:
+            customer_shipments.append(item)
+        elif is_src_customer and not is_dst_customer:
+            customer_returns.append(item)
+
+    return customer_shipments, customer_returns
+
+
 # ============================================================================
 # 3. METRICS AGGREGATION & DATA NORMALIZATION
 # ============================================================================
 
 def normalize_detail_records(alerts, checks, scraps):
-    """Normalize raw Odoo records into standard Quality Compass detail rows."""
+    """
+    Normalize raw Odoo records into standard Quality Compass detail rows.
+    Strictly preserves real data without synthetic multipliers or placeholder seeds.
+    """
     normalized = []
 
     # 1. Process Quality Alerts
     for a in alerts:
         product_info = a.get("product_id") or []
         product_name = product_info[1] if len(product_info) > 1 else ""
-        product_sku = product_name.split(" ")[0].strip("[]") if "[" in product_name else "SKU-GENERIC"
+        product_sku = product_name.split(" ")[0].strip("[]") if "[" in product_name else "SKU-ALERT"
 
         partner_info = a.get("partner_id") or []
-        partner_name = partner_info[1] if len(partner_info) > 1 else "NHIMM Internal"
+        partner_name = partner_info[1] if len(partner_info) > 1 else "NHIMM Customer"
 
         wc_info = a.get("workcenter_id") or []
-        workcenter = wc_info[1] if len(wc_info) > 1 else "CNC_LINE"
+        workcenter = wc_info[1] if len(wc_info) > 1 else "SHOPFLOOR"
 
         lot_info = a.get("lot_id") or []
         lot_number = lot_info[1] if len(lot_info) > 1 else "LOT-UNKNOWN"
@@ -337,24 +481,29 @@ def normalize_detail_records(alerts, checks, scraps):
             stage_mapped = "Resolved"
 
         reason_info = a.get("reason_id") or []
-        defect_type = reason_info[1] if len(reason_info) > 1 else (a.get("title") or "General Nonconformance")
+        defect_type = reason_info[1] if len(reason_info) > 1 else (a.get("title") or "Quality Nonconformance")
 
         date_val = (a.get("create_date") or datetime.now(timezone.utc).isoformat())[:10]
+
+        # Use actual recorded quantities if available, never fake 1000/1 seeds
+        qty_inspected = int(a.get("qty_inspected") or a.get("quantity") or 0)
+        qty_rejected = int(a.get("qty_defective") or a.get("qty") or 1)
+        calc_ppm = round((qty_rejected / qty_inspected) * 1_000_000) if qty_inspected > 0 else 0
 
         normalized.append({
             "id": f"odoo-alert-{a['id']}",
             "alert_code": a.get("name") or f"QA-{a['id']}",
             "product_sku": product_sku,
-            "product_name": product_name or "Machined Component",
+            "product_name": product_name or "Component",
             "customer_name": partner_name,
             "workcenter": workcenter,
             "lot_number": lot_number,
             "work_order": work_order,
             "defect_type": defect_type,
-            "quantity_inspected": 1000,
-            "quantity_rejected": 1,
-            "calculated_ppm": 1000,
-            "scrap_cost": 500.00,
+            "quantity_inspected": qty_inspected,
+            "quantity_rejected": qty_rejected,
+            "calculated_ppm": calc_ppm,
+            "scrap_cost": 0.00,
             "date": date_val,
             "stage": stage_mapped,
             "is_quarantined_mrb": True if stage_mapped in ["New", "Confirmed", "Action Proposed"] else False,
@@ -362,78 +511,163 @@ def normalize_detail_records(alerts, checks, scraps):
             "synced_at": datetime.now(timezone.utc).isoformat(),
         })
 
-    # 2. Process Scrap records if no alerts exist
-    if not normalized and scraps:
-        for s in scraps[:50]:
-            p_info = s.get("product_id") or []
-            p_name = p_info[1] if len(p_info) > 1 else "Scrapped Product"
-            qty = float(s.get("scrap_qty") or 1.0)
-            date_val = (s.get("date_done") or s.get("create_date") or datetime.now(timezone.utc).isoformat())[:10]
+    # 2. Process Scrap records (actual shopfloor scrap entries)
+    for s in scraps[:500]:
+        p_info = s.get("product_id") or []
+        p_name = p_info[1] if len(p_info) > 1 else "Scrapped Product"
+        qty = float(s.get("scrap_qty") or 0.0)
+        date_val = (s.get("date_done") or s.get("create_date") or datetime.now(timezone.utc).isoformat())[:10]
 
-            normalized.append({
-                "id": f"odoo-scrap-{s['id']}",
-                "alert_code": s.get("name") or f"SP-{s['id']}",
-                "product_sku": p_name.split(" ")[0].strip("[]") if "[" in p_name else "SKU-SCRAP",
-                "product_name": p_name,
-                "customer_name": "NHI Mechanical Motion",
-                "workcenter": "SHOPFLOOR",
-                "lot_number": "SCRAP-LOT",
-                "work_order": "MO-SCRAP",
-                "defect_type": "Manufacturing Scrap",
-                "quantity_inspected": int(qty * 100),
-                "quantity_rejected": int(qty),
-                "calculated_ppm": 10000,
-                "scrap_cost": round(qty * 25.0, 2),
-                "date": date_val,
-                "stage": "Resolved",
-                "is_quarantined_mrb": False,
-                "notes": f"Scrapped quantity: {qty}",
-                "synced_at": datetime.now(timezone.utc).isoformat(),
-            })
+        prod_info = s.get("production_id") or []
+        wo_info = s.get("workorder_id") or []
+        mo_name = prod_info[1] if len(prod_info) > 1 else (wo_info[1] if len(wo_info) > 1 else "STOCK-SCRAP")
+
+        lot_info = s.get("lot_id") or []
+        lot_num = lot_info[1] if len(lot_info) > 1 else "SCRAP-LOT"
+
+        normalized.append({
+            "id": f"odoo-scrap-{s['id']}",
+            "alert_code": s.get("name") or f"SP-{s['id']}",
+            "product_sku": p_name.split(" ")[0].strip("[]") if "[" in p_name else "SKU-SCRAP",
+            "product_name": p_name,
+            "customer_name": "NHI Mechanical Motion",
+            "workcenter": "SHOPFLOOR",
+            "lot_number": lot_num,
+            "work_order": mo_name,
+            "defect_type": "Manufacturing Scrap" if s.get("production_id") else "Inventory Scrap",
+            "quantity_inspected": 0,
+            "quantity_rejected": int(round(qty)),
+            "calculated_ppm": 0,
+            "scrap_cost": 0.00,
+            "date": date_val,
+            "stage": "Resolved",
+            "is_quarantined_mrb": False,
+            "notes": f"Scrapped quantity: {qty}",
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+        })
 
     return normalized
 
 
-def compute_rollups(records):
-    """Calculate monthly PPM, Pareto, and work center performance from records."""
-    total_inspected = sum(r["quantity_inspected"] for r in records) or 1
-    total_defects = sum(r["quantity_rejected"] for r in records)
-    overall_ppm = round((total_defects / total_inspected) * 1_000_000)
-    fpy = round(((total_inspected - total_defects) / total_inspected) * 100, 2)
+def compute_rollups(mo_records, scrap_records, shipments_12m, returns_12m, make_pids, make_tids, records):
+    """
+    Calculate:
+      1. In-Process MO Scrap PPM: (MO Scrap Qty / Pieces Produced on MOs) * 1,000,000
+      2. First Pass Yield (FPY %): (1 - MO Scrap Qty / Pieces Produced on MOs) * 100
+      3. Finished Goods Customer Return PPM (Rolling 12M: Make vs Buy):
+         - Make items returned / Make items sold * 1,000,000
+         - Buy items returned / Buy items sold * 1,000,000
+         - Total items returned / Total items sold * 1,000,000
+      4. Monthly Trend Buckets, Defect Pareto, and Work Center performance.
+    """
+    def is_make_product(prod_info, tmpl_info):
+        pid = prod_info[0] if prod_info and isinstance(prod_info, (list, tuple)) else None
+        tid = tmpl_info[0] if tmpl_info and isinstance(tmpl_info, (list, tuple)) else None
+        return (pid in make_pids) or (tid in make_tids)
 
-    # Monthly Trends
-    months = {}
-    for r in records:
-        ym = r["date"][:7]
-        m = months.setdefault(ym, {"inspected": 0, "defects": 0, "scrap": 0.0})
-        m["inspected"] += r["quantity_inspected"]
-        m["defects"] += r["quantity_rejected"]
-        m["scrap"] += float(r.get("scrap_cost") or 0.0)
+    # -------------------------------------------------------------------------
+    # A. In-Process Manufacturing Order (MO) Scrap & Production
+    # -------------------------------------------------------------------------
+    mo_by_month = {}
+    total_mo_pieces_produced = 0.0
+    for mo in mo_records:
+        qty = float(mo.get("qty_produced") or 0.0)
+        total_mo_pieces_produced += qty
+        dt = mo.get("date_finished") or mo.get("create_date") or ""
+        ym = dt[:7] if len(dt) >= 7 else datetime.now(timezone.utc).strftime("%Y-%m")
+        mo_by_month[ym] = mo_by_month.get(ym, 0.0) + qty
+
+    mo_scrap_by_month = {}
+    total_mo_scrap_qty = 0.0
+    for s in scrap_records:
+        if s.get("production_id"):
+            qty = float(s.get("scrap_qty") or 0.0)
+            total_mo_scrap_qty += qty
+            dt = s.get("date_done") or s.get("create_date") or ""
+            ym = dt[:7] if len(dt) >= 7 else datetime.now(timezone.utc).strftime("%Y-%m")
+            mo_scrap_by_month[ym] = mo_scrap_by_month.get(ym, 0.0) + qty
+
+    if total_mo_pieces_produced > 0:
+        overall_mo_ppm = round((total_mo_scrap_qty / total_mo_pieces_produced) * 1_000_000)
+        fpy = round(max(0.0, ((total_mo_pieces_produced - total_mo_scrap_qty) / total_mo_pieces_produced) * 100), 2)
+    else:
+        overall_mo_ppm = 0
+        fpy = 100.0
+
+    # -------------------------------------------------------------------------
+    # B. Finished Goods Customer Deliveries vs Returns (Rolling 12M: Make vs Buy)
+    # -------------------------------------------------------------------------
+    make_sold_12m = 0.0
+    buy_sold_12m = 0.0
+    for s in shipments_12m:
+        qty = float(s.get("quantity") or 0.0)
+        if is_make_product(s.get("product_id"), s.get("product_tmpl_id")):
+            make_sold_12m += qty
+        else:
+            buy_sold_12m += qty
+    total_sold_12m = make_sold_12m + buy_sold_12m
+
+    make_ret_12m = 0.0
+    buy_ret_12m = 0.0
+    for r in returns_12m:
+        qty = float(r.get("quantity") or 0.0)
+        if is_make_product(r.get("product_id"), r.get("product_tmpl_id")):
+            make_ret_12m += qty
+        else:
+            buy_ret_12m += qty
+    total_ret_12m = make_ret_12m + buy_ret_12m
+
+    fg_make_ppm = round((make_ret_12m / make_sold_12m) * 1_000_000) if make_sold_12m > 0 else 0
+    fg_buy_ppm = round((buy_ret_12m / buy_sold_12m) * 1_000_000) if buy_sold_12m > 0 else 0
+    fg_total_ppm = round((total_ret_12m / total_sold_12m) * 1_000_000) if total_sold_12m > 0 else 0
+
+    # -------------------------------------------------------------------------
+    # C. Monthly Trend Buckets
+    # -------------------------------------------------------------------------
+    all_months = sorted(set(list(mo_by_month.keys()) + list(mo_scrap_by_month.keys())))
+    if not all_months:
+        all_months = [datetime.now(timezone.utc).strftime("%Y-%m")]
+    all_months = all_months[-12:]
 
     ppm_trends = []
-    for ym, data in sorted(months.items()):
-        insp = data["inspected"] or 1
-        defc = data["defects"]
-        ppm_val = round((defc / insp) * 1_000_000)
-        fpy_val = round(((insp - defc) / insp) * 100, 2)
+    for ym in all_months:
+        prod = mo_by_month.get(ym, 0.0)
+        scrp = mo_scrap_by_month.get(ym, 0.0)
+        mo_ppm_val = round((scrp / prod) * 1_000_000) if prod > 0 else 0
+        fpy_val = round(max(0.0, ((prod - scrp) / prod) * 100), 2) if prod > 0 else 100.0
+
         ppm_trends.append({
             "period": ym,
-            "total_units": insp,
-            "defective_units": defc,
-            "ppm": ppm_val,
+            "total_units": int(round(prod)),
+            "defective_units": int(round(scrp)),
+            "ppm": mo_ppm_val,
             "target_ppm": 150,
             "fpy_percentage": fpy_val,
-            "scrap_dollars": round(data["scrap"], 2),
-            "scrap_percentage": round((data["scrap"] / (insp * 15.0)) * 100, 2) if insp else 0,
+            "scrap_dollars": 0.00,
+            "scrap_percentage": round((scrp / prod) * 100, 2) if prod > 0 else 0.0,
+            "mo_pieces_produced": int(round(prod)),
+            "mo_scrap_qty": int(round(scrp)),
+            "mo_scrap_ppm": mo_ppm_val,
+            "fg_make_sold_12m": int(round(make_sold_12m)),
+            "fg_make_returned_12m": int(round(make_ret_12m)),
+            "fg_make_ppm": fg_make_ppm,
+            "fg_buy_sold_12m": int(round(buy_sold_12m)),
+            "fg_buy_returned_12m": int(round(buy_ret_12m)),
+            "fg_buy_ppm": fg_buy_ppm,
+            "fg_total_sold_12m": int(round(total_sold_12m)),
+            "fg_total_returned_12m": int(round(total_ret_12m)),
+            "fg_total_ppm": fg_total_ppm,
             "synced_at": datetime.now(timezone.utc).isoformat(),
         })
 
-    # Defect Pareto
+    # -------------------------------------------------------------------------
+    # D. Defect Pareto Distribution
+    # -------------------------------------------------------------------------
     pareto_map = {}
     for r in records:
         reason = r["defect_type"]
         p = pareto_map.setdefault(reason, {"count": 0, "cost": 0.0})
-        p["count"] += r["quantity_rejected"]
+        p["count"] += (r["quantity_rejected"] or 1)
         p["cost"] += float(r.get("scrap_cost") or 0.0)
 
     sorted_pareto = sorted(pareto_map.items(), key=lambda x: x[1]["count"], reverse=True)
@@ -453,16 +687,18 @@ def compute_rollups(records):
             "synced_at": datetime.now(timezone.utc).isoformat(),
         })
 
-    # Work Center Performance
+    # -------------------------------------------------------------------------
+    # E. Work Center Performance
+    # -------------------------------------------------------------------------
     wc_map = {}
     for r in records:
         wc = r["workcenter"]
         w = wc_map.setdefault(wc, {"total": 0, "defects": 0, "scrap": 0.0, "defects_dict": {}})
-        w["total"] += r["quantity_inspected"]
-        w["defects"] += r["quantity_rejected"]
+        w["total"] += (r["quantity_inspected"] or 1)
+        w["defects"] += (r["quantity_rejected"] or 1)
         w["scrap"] += float(r.get("scrap_cost") or 0.0)
         d_type = r["defect_type"]
-        w["defects_dict"][d_type] = w["defects_dict"].get(d_type, 0) + r["quantity_rejected"]
+        w["defects_dict"][d_type] = w["defects_dict"].get(d_type, 0) + (r["quantity_rejected"] or 1)
 
     workcenter_list = []
     for wc, data in sorted(wc_map.items()):
@@ -480,8 +716,20 @@ def compute_rollups(records):
         })
 
     return {
-        "overall_ppm": overall_ppm,
+        "overall_ppm": overall_mo_ppm,
         "fpy_percentage": fpy,
+        "mo_pieces_produced": int(round(total_mo_pieces_produced)),
+        "mo_scrap_qty": int(round(total_mo_scrap_qty)),
+        "mo_scrap_ppm": overall_mo_ppm,
+        "fg_make_sold_12m": int(round(make_sold_12m)),
+        "fg_make_returned_12m": int(round(make_ret_12m)),
+        "fg_make_ppm": fg_make_ppm,
+        "fg_buy_sold_12m": int(round(buy_sold_12m)),
+        "fg_buy_returned_12m": int(round(buy_ret_12m)),
+        "fg_buy_ppm": fg_buy_ppm,
+        "fg_total_sold_12m": int(round(total_sold_12m)),
+        "fg_total_returned_12m": int(round(total_ret_12m)),
+        "fg_total_ppm": fg_total_ppm,
         "ppm_trends": ppm_trends,
         "pareto": pareto_list,
         "workcenters": workcenter_list,
@@ -509,13 +757,21 @@ def upsert_to_supabase(sb_client: Client, records, rollups):
         except Exception as exc:
             print(f"Notice (odoo_quality_records): {exc}")
 
-    # 2. Upsert PPM monthly metrics
+    # 2. Upsert PPM monthly metrics (resilient with core-column fallback)
     if rollups.get("ppm_trends"):
         try:
             res = sb_client.table("odoo_quality_ppm_metrics").upsert(rollups["ppm_trends"], on_conflict="period").execute()
             print(f"Upserted {len(rollups['ppm_trends'])} periods into 'odoo_quality_ppm_metrics'.")
         except Exception as exc:
-            print(f"Notice (odoo_quality_ppm_metrics): {exc}")
+            print(f"Notice (odoo_quality_ppm_metrics full upsert): {exc}")
+            # Fallback to core columns if new columns do not exist in DB yet
+            core_columns = ["period", "total_units", "defective_units", "ppm", "target_ppm", "fpy_percentage", "scrap_dollars", "scrap_percentage", "synced_at"]
+            trimmed = [{k: row[k] for k in core_columns if k in row} for row in rollups["ppm_trends"]]
+            try:
+                res = sb_client.table("odoo_quality_ppm_metrics").upsert(trimmed, on_conflict="period").execute()
+                print(f"Upserted {len(trimmed)} periods using base columns into 'odoo_quality_ppm_metrics'.")
+            except Exception as exc2:
+                print(f"Notice (odoo_quality_ppm_metrics base upsert): {exc2}")
 
     # 3. Upsert Defect Pareto
     if rollups.get("pareto"):
@@ -567,7 +823,7 @@ def main():
     if missing:
         print(f"Cannot run sync: missing required secrets: {', '.join(missing)}")
         print("Please configure GitHub repository secrets: ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.")
-        sys.exit(0)  # Exit gracefully so cron does not show failed build when secrets not yet configured
+        sys.exit(0)
 
     # Connect to Supabase
     sb = connect_supabase()
@@ -579,7 +835,7 @@ def main():
         print(f"Authenticated successfully with Odoo {version} (UID: {uid}, DB: {used_db}).")
 
         # Fetch records
-        print("Querying Odoo Quality models...")
+        print("Querying Odoo Quality & Manufacturing models...")
         alerts = fetch_quality_alerts(models, used_db, uid, password)
         print(f"Retrieved {len(alerts)} quality alert records.")
 
@@ -589,18 +845,37 @@ def main():
         scraps = fetch_scrap_records(models, used_db, uid, password)
         print(f"Retrieved {len(scraps)} completed scrap records.")
 
+        mos = fetch_mo_production(models, used_db, uid, password)
+        print(f"Retrieved {len(mos)} completed manufacturing orders.")
+
+        make_pids, make_tids = fetch_make_bom_product_ids(models, used_db, uid, password)
+        # Also any product in completed MOs is a Make product
+        for m in mos:
+            p = m.get("product_id")
+            if p and isinstance(p, (list, tuple)):
+                make_pids.add(p[0])
+            pt = m.get("product_tmpl_id")
+            if pt and isinstance(pt, (list, tuple)):
+                make_tids.add(pt[0])
+        print(f"Identified {len(make_pids)} Make products with active BOMs / MOs.")
+
+        shipments_12m, returns_12m = fetch_customer_sales_and_returns_12m(models, used_db, uid, password)
+        print(f"Retrieved {len(shipments_12m)} customer shipments and {len(returns_12m)} customer returns (Rolling 12M).")
+
         # Normalize & Calculate Rollups
         records = normalize_detail_records(alerts, checks, scraps)
         print(f"Compiled {len(records)} normalized quality detail records.")
 
-        rollups = compute_rollups(records)
-        print(f"Calculated enterprise PPM: {rollups['overall_ppm']} | First Pass Yield: {rollups['fpy_percentage']}%")
+        rollups = compute_rollups(mos, scraps, shipments_12m, returns_12m, make_pids, make_tids, records)
+        print(f"Calculated In-Process MO Scrap PPM: {rollups['overall_ppm']} | First Pass Yield: {rollups['fpy_percentage']}% (Pieces Produced: {rollups['mo_pieces_produced']}, MO Scrap: {rollups['mo_scrap_qty']})")
+        print(f"Calculated Rolling 12M FG Return PPM: Make={rollups['fg_make_ppm']} (Sold: {rollups['fg_make_sold_12m']}, Ret: {rollups['fg_make_returned_12m']}) | Buy={rollups['fg_buy_ppm']} (Sold: {rollups['fg_buy_sold_12m']}, Ret: {rollups['fg_buy_returned_12m']}) | Total={rollups['fg_total_ppm']} (Sold: {rollups['fg_total_sold_12m']}, Ret: {rollups['fg_total_returned_12m']})")
 
         # Upsert into Supabase
         written_count = upsert_to_supabase(sb, records, rollups)
 
         duration = time.time() - start_time
-        log_sync_result(sb, "SUCCESS", written_count, duration, f"Synced {len(records)} quality records ({len(alerts)} alerts, {len(checks)} checks, {len(scraps)} scraps).")
+        summary_msg = f"Synced {len(records)} quality records. In-Process MO Scrap PPM: {rollups['overall_ppm']}, FG Return PPM: {rollups['fg_total_ppm']}."
+        log_sync_result(sb, "SUCCESS", written_count, duration, summary_msg)
 
         print(f"=== Sync Complete in {duration:.2f}s ===")
 
@@ -613,3 +888,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

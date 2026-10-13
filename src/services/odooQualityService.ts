@@ -9,12 +9,13 @@ import type {
   OdooQualityDetailRecord 
 } from '../types/qms';
 
-const ODOO_QUALITY_STORAGE_KEY = 'qc_odoo_quality_records_v2';
+const ODOO_QUALITY_STORAGE_KEY = 'qc_odoo_quality_records_v3';
 
 // Purge any legacy starter mock records from previous sessions
 try {
   if (typeof window !== 'undefined' && window.localStorage) {
     localStorage.removeItem('qc_odoo_quality_records_v1');
+    localStorage.removeItem('qc_odoo_quality_records_v2');
     localStorage.removeItem('qc_odoo_config');
   }
 } catch {
@@ -53,7 +54,7 @@ export function calculatePpmMonthlyTrends(records: OdooQualityDetailRecord[]): O
     if (!monthlyBuckets[ym]) {
       monthlyBuckets[ym] = { units: 0, defective: 0, scrap: 0, targetPpm: 150 };
     }
-    monthlyBuckets[ym].units += (r.quantity_inspected || 1000);
+    monthlyBuckets[ym].units += (r.quantity_inspected || 0);
     monthlyBuckets[ym].defective += (r.quantity_rejected || 0);
     monthlyBuckets[ym].scrap += (r.scrap_cost || 0);
   });
@@ -61,10 +62,10 @@ export function calculatePpmMonthlyTrends(records: OdooQualityDetailRecord[]): O
   return Object.entries(monthlyBuckets)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([period, data]) => {
-      const units = data.units || 1;
-      const ppm = Math.round((data.defective / units) * 1000000);
-      const fpy = Number((((units - data.defective) / units) * 100).toFixed(2));
-      const scrapPct = Number(((data.scrap / (units * 14.50)) * 100).toFixed(2));
+      const units = data.units;
+      const ppm = units > 0 ? Math.round((data.defective / units) * 1000000) : 0;
+      const fpy = units > 0 ? Number((((units - data.defective) / units) * 100).toFixed(2)) : 100.0;
+      const scrapPct = units > 0 ? Number(((data.scrap / (units * 14.50)) * 100).toFixed(2)) : 0;
 
       return {
         period,
@@ -134,7 +135,7 @@ export function calculateWorkCenterQuality(records: OdooQualityDetailRecord[]): 
     if (!centers[wc]) {
       centers[wc] = { total: 0, def: 0, cost: 0, defectsMap: {} };
     }
-    centers[wc].total += (r.quantity_inspected || 1000);
+    centers[wc].total += (r.quantity_inspected || 0);
     centers[wc].def += (r.quantity_rejected || 0);
     centers[wc].cost += (r.scrap_cost || 0);
 
@@ -188,7 +189,7 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
         lot_number: r.lot_number || 'LOT-SYNCED',
         work_order: r.work_order || 'WO-SYNCED',
         defect_type: r.defect_type,
-        quantity_inspected: Number(r.quantity_inspected || 1000),
+        quantity_inspected: Number(r.quantity_inspected || 0),
         quantity_rejected: Number(r.quantity_rejected || 0),
         calculated_ppm: Number(r.calculated_ppm || 0),
         scrap_cost: Number(r.scrap_cost || 0),
@@ -270,9 +271,9 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
 
   // Calculate top-line metrics from actual data
   const currentMonthMetric = ppmMonthlyTrends[ppmMonthlyTrends.length - 1];
-  const overallPpm = currentMonthMetric?.ppm || 0;
-  const targetPpm = currentMonthMetric?.target_ppm || 150;
-  const fpy = currentMonthMetric?.fpy_percentage || 100.0;
+  const overallPpm = currentMonthMetric?.ppm ?? 0;
+  const targetPpm = currentMonthMetric?.target_ppm ?? 150;
+  const fpy = currentMonthMetric?.fpy_percentage ?? 100.0;
 
   const openAlerts = records.filter(r => r.stage !== 'Resolved');
   const mrbLots = records.filter(r => r.is_quarantined_mrb);
@@ -315,6 +316,18 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
     overall_ppm: overallPpm,
     target_ppm: targetPpm,
     fpy_percentage: fpy,
+    mo_pieces_produced: currentMonthMetric?.mo_pieces_produced ?? 0,
+    mo_scrap_qty: currentMonthMetric?.mo_scrap_qty ?? 0,
+    mo_scrap_ppm: currentMonthMetric?.mo_scrap_ppm ?? 0,
+    fg_make_sold_12m: currentMonthMetric?.fg_make_sold_12m ?? 0,
+    fg_make_returned_12m: currentMonthMetric?.fg_make_returned_12m ?? 0,
+    fg_make_ppm: currentMonthMetric?.fg_make_ppm ?? 0,
+    fg_buy_sold_12m: currentMonthMetric?.fg_buy_sold_12m ?? 0,
+    fg_buy_returned_12m: currentMonthMetric?.fg_buy_returned_12m ?? 0,
+    fg_buy_ppm: currentMonthMetric?.fg_buy_ppm ?? 0,
+    fg_total_sold_12m: currentMonthMetric?.fg_total_sold_12m ?? 0,
+    fg_total_returned_12m: currentMonthMetric?.fg_total_returned_12m ?? 0,
+    fg_total_ppm: currentMonthMetric?.fg_total_ppm ?? 0,
     recent_alerts: alerts,
     ppm_monthly_trends: ppmMonthlyTrends,
     defect_pareto: pareto,

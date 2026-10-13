@@ -544,9 +544,9 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
             <div>
               <span className="text-[10px] uppercase font-mono text-slate-400 block">Clause 9.3.2.c.3 PPM & Scrap</span>
               <div className="flex items-center gap-2 font-mono">
-                <span className="text-base font-bold text-white">{odooSummary?.overall_ppm || 128} PPM</span>
+                <span className="text-base font-bold text-white">{odooSummary?.overall_ppm ?? 0} PPM</span>
                 <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded font-bold">
-                  {odooSummary?.fpy_percentage || 99.87}% FPY
+                  {odooSummary?.fpy_percentage ?? 100.0}% FPY
                 </span>
               </div>
             </div>

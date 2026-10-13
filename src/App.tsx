@@ -71,10 +71,10 @@ export function App() {
     }
   }, [activeViewMode]);
 
-  // Current active drawing selection
-  const [currentDrawingId, setCurrentDrawingId] = useState<string>('drawing-flange');
+  // Current active drawing selection (clean blank canvas by default)
+  const [currentDrawingId, setCurrentDrawingId] = useState<string>('drawing-blank');
   const [metadata, setMetadata] = useState<TitleBlockMetadata>(PRELOADED_DRAWINGS[0].metadata);
-  const [balloons, setBalloons] = useState<InspectionBalloon[]>(PRELOADED_DRAWINGS[0].dimensions);
+  const [balloons, setBalloons] = useState<InspectionBalloon[]>([]);
   const [activeStandard, setActiveStandard] = useState<StandardType>('ASME_Y14_5');
 
   // Dynamic Part Family Profiles & Template Training

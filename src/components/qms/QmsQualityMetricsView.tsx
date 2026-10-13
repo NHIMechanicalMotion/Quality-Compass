@@ -48,8 +48,8 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
     lot_number: '',
     work_order: '',
     defect_type: '',
-    quantity_inspected: 1000,
-    quantity_rejected: 1,
+    quantity_inspected: 0,
+    quantity_rejected: 0,
     scrap_cost: 0,
     date: new Date().toISOString().slice(0, 10),
     stage: 'New',
@@ -100,9 +100,9 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
   const customers = Array.from(new Set(records.map(r => r.customer_name).filter(Boolean)));
   const workcenters = Array.from(new Set(records.map(r => r.workcenter).filter(Boolean)));
 
-  const overallPpm = odooSummary.overall_ppm || 128;
-  const targetPpm = odooSummary.target_ppm || 150;
-  const fpy = odooSummary.fpy_percentage || 99.87;
+  const overallPpm = odooSummary.overall_ppm ?? 0;
+  const targetPpm = odooSummary.target_ppm ?? 150;
+  const fpy = odooSummary.fpy_percentage ?? 100.0;
   const isPpmConforming = overallPpm <= targetPpm;
 
   return (
@@ -157,27 +157,27 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* KPI Cards: PPM, FPY, Scrap, MRB */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
-        {/* Overall PPM */}
+      {/* KPI Cards: MO Scrap PPM, FPY, FG Return PPM (Make vs Buy), Scrap, MRB */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+        {/* 1. In-Process MO Scrap PPM */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Overall PPM</span>
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">In-Process MO Scrap</span>
             <span className={`w-2.5 h-2.5 rounded-full ${isPpmConforming ? 'bg-emerald-400' : 'bg-rose-500'}`} />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">{overallPpm}</span>
+            <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
+              {odooSummary.mo_scrap_ppm ?? overallPpm}
+            </span>
             <span className="text-xs text-slate-400 font-mono">PPM</span>
           </div>
-          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-            <span className="text-slate-400">Target: &lt; {targetPpm} PPM</span>
-            <span className={`font-bold ${isPpmConforming ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {isPpmConforming ? 'Conforming' : 'Action Req'}
-            </span>
+          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+            <span>Produced: {(odooSummary.mo_pieces_produced || 0).toLocaleString()}</span>
+            <span>Scrap: <strong className="text-amber-400">{(odooSummary.mo_scrap_qty || 0).toLocaleString()}</strong></span>
           </div>
         </div>
 
-        {/* First Pass Yield */}
+        {/* 2. First Pass Yield */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">First-Pass Yield</span>
@@ -192,7 +192,47 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Scrap YTD vs Target */}
+        {/* 3. Customer FG Return PPM (Rolling 12M) */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">FG Return PPM (12M)</span>
+            <TrendingUp className="w-4 h-4 text-purple-400" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-extrabold text-purple-300 font-mono">
+              {odooSummary.fg_total_ppm ?? 0}
+            </span>
+            <span className="text-xs text-slate-400 font-mono">PPM</span>
+          </div>
+          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+            <span>Sold: {(odooSummary.fg_total_sold_12m || 0).toLocaleString()}</span>
+            <span>Returns: <strong className="text-rose-400">{(odooSummary.fg_total_returned_12m || 0).toLocaleString()}</strong></span>
+          </div>
+        </div>
+
+        {/* 4. Make vs Buy Customer Return PPM (Rolling 12M) */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Make vs Buy (12M)</span>
+            <Factory className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="mt-2 space-y-1">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-400">Make (Mfg):</span>
+              <span className="text-emerald-400 font-bold">{odooSummary.fg_make_ppm ?? 0} PPM</span>
+            </div>
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-400">Buy (Purch):</span>
+              <span className="text-blue-400 font-bold">{odooSummary.fg_buy_ppm ?? 0} PPM</span>
+            </div>
+          </div>
+          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500">
+            <span>Make Sold: {(odooSummary.fg_make_sold_12m || 0).toLocaleString()}</span>
+            <span>Buy Sold: {(odooSummary.fg_buy_sold_12m || 0).toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* 5. Scrap YTD & MRB Hold */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Scrap Cost YTD</span>
@@ -204,42 +244,8 @@ export const QmsQualityMetricsView: React.FC<Props> = ({
             </span>
           </div>
           <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-            <span>Target: ${(odooSummary.scrap_target || 35000).toLocaleString()}</span>
-            <span className="text-amber-400 font-bold">
-              {Math.round(((odooSummary.scrap_ytd || 0) / (odooSummary.scrap_target || 35000)) * 100)}% Used
-            </span>
-          </div>
-        </div>
-
-        {/* MRB Quarantined Lots */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">MRB Quarantined</span>
-            <ShieldAlert className="w-4 h-4 text-rose-400" />
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-extrabold text-rose-400 font-mono">{odooSummary.mrb_quarantined_lots}</span>
-            <span className="text-xs text-slate-400">Lots</span>
-          </div>
-          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-            <span>Physical Segregation</span>
-            <span className="text-rose-400 font-bold">Active Hold</span>
-          </div>
-        </div>
-
-        {/* Open Quality Alerts */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Open QA Alerts</span>
-            <AlertTriangle className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-extrabold text-cyan-300 font-mono">{odooSummary.open_quality_alerts}</span>
-            <span className="text-xs text-slate-400">Under Action</span>
-          </div>
-          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-            <span>Supplier RMA: ${(odooSummary.supplier_rma_cost || 0).toLocaleString()}</span>
-            <span className="text-cyan-400 font-bold">Odoo ERP</span>
+            <span>MRB Hold: <strong className="text-rose-400">{odooSummary.mrb_quarantined_lots}</strong> Lots</span>
+            <span className="text-cyan-400 font-bold">Odoo v18</span>
           </div>
         </div>
       </div>

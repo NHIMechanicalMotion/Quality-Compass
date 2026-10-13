@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS public.odoo_quality_ppm_metrics (
     fpy_percentage NUMERIC(5, 2) NOT NULL,
     scrap_dollars NUMERIC(12, 2) DEFAULT 0.00,
     scrap_percentage NUMERIC(5, 2) DEFAULT 0.00,
+    mo_pieces_produced INTEGER DEFAULT 0,
+    mo_scrap_qty INTEGER DEFAULT 0,
+    mo_scrap_ppm INTEGER DEFAULT 0,
+    fg_make_sold_12m INTEGER DEFAULT 0,
+    fg_make_returned_12m INTEGER DEFAULT 0,
+    fg_make_ppm INTEGER DEFAULT 0,
+    fg_buy_sold_12m INTEGER DEFAULT 0,
+    fg_buy_returned_12m INTEGER DEFAULT 0,
+    fg_buy_ppm INTEGER DEFAULT 0,
+    fg_total_sold_12m INTEGER DEFAULT 0,
+    fg_total_returned_12m INTEGER DEFAULT 0,
+    fg_total_ppm INTEGER DEFAULT 0,
     synced_at TIMESTAMPTZ DEFAULT NOW()
 );
 

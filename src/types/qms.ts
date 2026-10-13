@@ -306,6 +306,20 @@ export interface OdooQualityPpmMetric {
   fpy_percentage: number;
   scrap_dollars: number;
   scrap_percentage: number;
+  // Operational MO scrap metrics
+  mo_pieces_produced?: number;
+  mo_scrap_qty?: number;
+  mo_scrap_ppm?: number;
+  // Finished Goods returns (Rolling 12M: Make vs Buy)
+  fg_make_sold_12m?: number;
+  fg_make_returned_12m?: number;
+  fg_make_ppm?: number;
+  fg_buy_sold_12m?: number;
+  fg_buy_returned_12m?: number;
+  fg_buy_ppm?: number;
+  fg_total_sold_12m?: number;
+  fg_total_returned_12m?: number;
+  fg_total_ppm?: number;
 }
 
 export interface OdooWorkCenterQuality {
@@ -356,6 +370,20 @@ export interface OdooSyncSummary {
   overall_ppm: number;
   target_ppm: number;
   fpy_percentage: number;
+  // Operational MO scrap metrics
+  mo_pieces_produced?: number;
+  mo_scrap_qty?: number;
+  mo_scrap_ppm?: number;
+  // Finished Goods returns (Rolling 12M: Make vs Buy)
+  fg_make_sold_12m?: number;
+  fg_make_returned_12m?: number;
+  fg_make_ppm?: number;
+  fg_buy_sold_12m?: number;
+  fg_buy_returned_12m?: number;
+  fg_buy_ppm?: number;
+  fg_total_sold_12m?: number;
+  fg_total_returned_12m?: number;
+  fg_total_ppm?: number;
   recent_alerts: OdooQualityAlert[];
   ppm_monthly_trends: OdooQualityPpmMetric[];
   defect_pareto: OdooDefectPareto[];

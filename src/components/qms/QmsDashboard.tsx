@@ -415,7 +415,7 @@ export const QmsDashboard: React.FC<Props> = () => {
               <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
               Quality Metrics & PPM
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-purple-300 font-mono font-bold">
-                {odooSummary.overall_ppm || 128} PPM
+                {odooSummary.overall_ppm ?? 0} PPM
               </span>
             </button>
 

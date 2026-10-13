@@ -27,24 +27,40 @@ Following the operational standard established by the NHIMM Odoo Operations Dash
 
 ---
 
-## 3. Mathematical Formulations
+## 3. Mathematical Formulations & Quality Metrics
 
-### A. Parts Per Million (PPM) Defect Rate
-PPM standardizes defect rates across varying production volumes:
+Quality Compass calculates two distinct, mathematically sound quality metrics from Odoo ERP shopfloor and warehouse movements:
 
-$$\text{PPM} = \left( \frac{\text{Defective Units}}{\text{Total Inspected Units}} \right) \times 1{,}000{,}000$$
+### A. In-Process Manufacturing (MO Scrap PPM & FPY)
+Calculated from completed Manufacturing Orders (`mrp.production` where state is `done` or `to_close`) compared directly against shopfloor scrap records linked to manufacturing orders (`stock.scrap` where `production_id != False`).
 
-*Enterprise Thresholds for NHIMM:*
-- **World-Class Automotive Target:** $\text{PPM} \le 150$
-- **Acceptable Tier-1 Heavy Duty:** $151 \le \text{PPM} \le 350$
-- **Corrective Action Threshold:** $\text{PPM} > 350$ (Automatically triggers an investigation or 8D CAPA)
+$$\text{MO Scrap PPM} = \left( \frac{\text{MO Scrap Quantity}}{\text{Total Pieces Produced on MOs}} \right) \times 1{,}000{,}000$$
 
-### B. First Pass Yield (FPY %)
-The percentage of units that pass inspection without requiring rework, scrap, or re-testing:
+$$\text{First Pass Yield (FPY \%)} = \left( 1 - \frac{\text{MO Scrap Quantity}}{\text{Total Pieces Produced on MOs}} \right) \times 100\%$$
 
-$$\text{FPY} = \left( 1 - \frac{\text{Defective Units}}{\text{Total Inspected Units}} \right) \times 100\%$$
+*Enterprise Thresholds for NHIMM Claremont Shopfloor:*
+- **World-Class Automotive Target:** $\text{MO Scrap PPM} \le 150$
+- **Acceptable Tier-1 Heavy Duty:** $151 \le \text{PPM} \le 500$
+- **First-Pass Yield Target:** $\text{FPY} \ge 99.85\%$
 
-*Target:* $\text{FPY} \ge 99.85\%$
+### B. Finished Goods Customer Return PPM (Rolling 12 Months: Make vs Buy)
+Calculated from completed stock movements (`stock.move` where `state = 'done'` over the trailing 365 days):
+- **Customer Deliveries (Sold):** `location_dest_id` is a customer location and `location_id` is non-customer.
+- **Customer Returns:** `location_id` is a customer location and `location_dest_id` is an internal location.
+
+Products are strictly partitioned into **Make** (manufactured parts with active BOMs in `mrp.bom` or completed MOs in `mrp.production`) and **Buy** (resale / purchased finished goods):
+
+1. **Make (Manufactured FG Return PPM):**
+   $$\text{Make FG PPM} = \left( \frac{\text{Make Units Returned (12M)}}{\text{Make Units Sold (12M)}} \right) \times 1{,}000{,}000$$
+
+2. **Buy (Purchased FG Return PPM):**
+   $$\text{Buy FG PPM} = \left( \frac{\text{Buy Units Returned (12M)}}{\text{Buy Units Sold (12M)}} \right) \times 1{,}000{,}000$$
+
+3. **Total Enterprise FG Return PPM:**
+   $$\text{Total FG PPM} = \left( \frac{\text{Total Customer Returned Units (12M)}}{\text{Total Customer Sold Units (12M)}} \right) \times 1{,}000{,}000$$
+
+### C. Zero Seeded Fallback Standard
+Neither Quality Compass nor `scripts/sync_odoo_quality.py` injects synthetic placeholder numbers (`quantity_inspected: 1000, quantity_rejected: 1, calculated_ppm: 1000`). When no scrap or defects exist, rates calculate to clean zeros ($0\text{ PPM}$, $100.0\%\text{ FPY}$) rather than arbitrary fallbacks.
 
 ---
 

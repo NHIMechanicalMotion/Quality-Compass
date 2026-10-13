@@ -95,7 +95,7 @@ Populated hourly by `.github/workflows/odoo_quality_sync.yml` running `scripts/s
   - Columns: `alert_code`, `product_sku`, `product_name`, `customer_name`, `workcenter`, `lot_number`, `work_order`, `defect_type`, `quantity_inspected`, `quantity_rejected`, `calculated_ppm`, `scrap_cost`, `date`, `stage`, `is_quarantined_mrb`, `notes`, `synced_at`.
 - **`odoo_quality_ppm_metrics`**: Monthly aggregated PPM and yield metrics.
   - Primary Key: `period` (TEXT, e.g. `'2026-10'`)
-  - Columns: `total_units`, `defective_units`, `ppm`, `target_ppm`, `fpy_percentage`, `scrap_dollars`, `scrap_percentage`, `synced_at`.
+  - Columns: `total_units`, `defective_units`, `ppm`, `target_ppm`, `fpy_percentage`, `scrap_dollars`, `scrap_percentage`, `mo_pieces_produced`, `mo_scrap_qty`, `mo_scrap_ppm`, `fg_make_sold_12m`, `fg_make_returned_12m`, `fg_make_ppm`, `fg_buy_sold_12m`, `fg_buy_returned_12m`, `fg_buy_ppm`, `fg_total_sold_12m`, `fg_total_returned_12m`, `fg_total_ppm`, `synced_at`.
 - **`odoo_quality_defect_pareto`**: Pareto defect distributions.
   - Primary Key: `reason` (TEXT)
   - Columns: `count`, `cost_impact`, `percentage`, `cumulative_percentage`, `synced_at`.
