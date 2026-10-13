@@ -351,28 +351,31 @@ async function executeFallbackRosterImport(
 
       // 2. Provision or reset user account if needed
       if (isNew || options.resetExistingPins) {
-        const { error: resetErr } = await db.rpc('reset_user_pin', {
+        const { data: resetRes, error: resetErr } = await db.rpc('reset_user_pin', {
           p_target_person_id: personData.id,
           p_temporary_pin: r.tempPin,
         });
 
-        if (!resetErr) {
+        if (!resetErr && (resetRes as any)?.success) {
           assignedPin = r.tempPin;
         } else {
-          console.warn(`Could not set temporary PIN for badge #${r.employeeNumber}:`, resetErr);
+          console.warn(`Could not set temporary PIN for badge #${r.employeeNumber}:`, resetErr || (resetRes as any)?.message);
         }
       }
 
       // 3. Assign default Training Operator role
-      await db
+      const { error: roleErr } = await db
         .from('user_role_assignments')
         .insert({
           person_id: personData.id,
           module_code: 'TRAINING',
           role_code: 'EMPLOYEE',
           start_date: new Date().toISOString().split('T')[0],
-        })
-        .catch(() => {});
+        });
+
+      if (roleErr) {
+        console.warn(`Role assignment skipped or already exists for #${r.employeeNumber}:`, roleErr.message);
+      }
 
       if (isNew) createdCount++;
       else updatedCount++;

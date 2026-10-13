@@ -174,7 +174,7 @@ export function logAuditAction(
     old_values: oldValues,
     new_values: newValues,
     timestamp: newEntry.timestamp
-  }]).then(() => {}).catch(() => {});
+  }]).then(() => {}, () => {});
 }
 
 // ============================================================================
@@ -314,7 +314,7 @@ export async function saveEmployee(empData: Partial<Employee>, currentUser: stri
       shift: saved.shift,
       status: saved.status,
       updated_at: new Date().toISOString()
-    }).eq('id', saved.id).catch(() => {});
+    }).eq('id', saved.id).then(() => {}, () => {});
   } else {
     // Insert new
     saved = {
@@ -346,7 +346,7 @@ export async function saveEmployee(empData: Partial<Employee>, currentUser: stri
       shift: saved.shift,
       hire_date: saved.hire_date,
       status: 'ACTIVE'
-    }, { onConflict: 'employee_number' }).catch(() => {});
+    }, { onConflict: 'employee_number' }).then(() => {}, () => {});
   }
 
   return saved;
@@ -370,7 +370,7 @@ export async function archiveEmployee(id: string, reason: string, currentUser: s
     archive_reason: reason, 
     archived_at: new Date().toISOString(),
     updated_at: target.updated_at 
-  }).eq('id', id).catch(() => {});
+  }).eq('id', id).then(() => {}, () => {});
 }
 
 export async function restoreEmployee(id: string, currentUser: string = 'Admin'): Promise<void> {
@@ -391,7 +391,7 @@ export async function restoreEmployee(id: string, currentUser: string = 'Admin')
     archive_reason: null, 
     archived_at: null,
     updated_at: target.updated_at 
-  }).eq('id', id).catch(() => {});
+  }).eq('id', id).then(() => {}, () => {});
 }
 
 // ============================================================================
@@ -444,7 +444,7 @@ export async function saveEquipment(eqData: Partial<Equipment>, currentUser: str
     const updated = list.map(eq => (eq.id === eqData.id ? saved : eq));
     saveLocalCollection('equipment', updated);
     logAuditAction('training_equipment', saved.id, 'UPDATE', currentUser, existing, saved);
-    DB.from('training_equipment').upsert(saved).catch(() => {});
+    DB.from('training_equipment').upsert(saved).then(() => {}, () => {});
   } else {
     saved = {
       id: eqData.id || `eq-${Date.now()}`,
@@ -462,7 +462,7 @@ export async function saveEquipment(eqData: Partial<Equipment>, currentUser: str
     list.push(saved);
     saveLocalCollection('equipment', list);
     logAuditAction('training_equipment', saved.id, 'INSERT', currentUser, null, saved);
-    DB.from('training_equipment').insert([saved]).catch(() => {});
+    DB.from('training_equipment').insert([saved]).then(() => {}, () => {});
   }
 
   return saved;
@@ -480,7 +480,7 @@ export async function archiveEquipment(id: string, reason: string, currentUser: 
 
   saveLocalCollection('equipment', list);
   logAuditAction('training_equipment', id, 'ARCHIVE', currentUser, old, target);
-  DB.from('training_equipment').update({ status: 'ARCHIVED', archive_reason: reason }).eq('id', id).catch(() => {});
+  DB.from('training_equipment').update({ status: 'ARCHIVED', archive_reason: reason }).eq('id', id).then(() => {}, () => {});
 }
 
 // ============================================================================
@@ -526,7 +526,7 @@ export async function saveTraining(modData: Partial<TrainingModule>, currentUser
     const updated = list.map(m => (m.id === modData.id ? saved : m));
     saveLocalCollection('trainings', updated);
     logAuditAction('training_modules', saved.id, 'UPDATE', currentUser, existing, saved);
-    DB.from('training_modules').upsert(saved).catch(() => {});
+    DB.from('training_modules').upsert(saved).then(() => {}, () => {});
   } else {
     saved = {
       id: modData.id || `trn-${Date.now()}`,
@@ -545,7 +545,7 @@ export async function saveTraining(modData: Partial<TrainingModule>, currentUser
     list.push(saved);
     saveLocalCollection('trainings', list);
     logAuditAction('training_modules', saved.id, 'INSERT', currentUser, null, saved);
-    DB.from('training_modules').insert([saved]).catch(() => {});
+    DB.from('training_modules').insert([saved]).then(() => {}, () => {});
   }
 
   return saved;
@@ -565,7 +565,7 @@ export async function saveTrainingResource(resData: Partial<TrainingResource>): 
 
   list.push(newRes);
   saveLocalCollection('resources', list);
-  DB.from('training_resources').insert([newRes]).catch(() => {});
+  DB.from('training_resources').insert([newRes]).then(() => {}, () => {});
   return newRes;
 }
 
@@ -636,7 +636,7 @@ export async function recordTrainingCompletion(
   logAuditAction('training_records', newRecord.id, 'INSERT', currentUser, null, newRecord);
 
   // Commit to Supabase (Append-only insert)
-  DB.from('training_records').insert([newRecord]).catch((err: any) => {
+  DB.from('training_records').insert([newRecord]).then(() => {}, (err: any) => {
     console.warn('Supabase training_records append-only write failed (using local store):', err);
   });
 
@@ -706,7 +706,7 @@ export async function recordEquipmentSignoff(
 
   logAuditAction('training_equipment_qualifications', newQual.id, 'INSERT', currentUser, null, newQual);
 
-  DB.from('training_equipment_qualifications').insert([newQual]).catch((err: any) => {
+  DB.from('training_equipment_qualifications').insert([newQual]).then(() => {}, (err: any) => {
     console.warn('Supabase equipment_qualifications append-only write failed (using local store):', err);
   });
 

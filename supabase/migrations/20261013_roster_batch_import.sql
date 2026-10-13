@@ -45,7 +45,7 @@ BEGIN
       v_shift := COALESCE(NULLIF(TRIM(v_item->>'shift'), ''), 'Shift 1 (Day)');
       v_hire_date := COALESCE((v_item->>'hire_date')::DATE, CURRENT_DATE);
       v_temp_pin := TRIM(v_item->>'temp_pin');
-      v_reset_pin := COALESCE((v_item->>'reset_existing_pin')::BOOLEAN, FALSE);
+      v_reset_pin := COALESCE((v_item->>'reset_pin')::BOOLEAN, (v_item->>'reset_existing_pin')::BOOLEAN, FALSE);
       v_assigned_pin := NULL;
 
       -- Validate company constraint
@@ -218,6 +218,62 @@ SET search_path = public, extensions, pg_temp;
 
 -- Execution grant
 GRANT EXECUTE ON FUNCTION public.provision_roster_batch(JSONB) TO anon, authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- Update reset_user_pin to automatically create user account if one doesn't exist yet
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.reset_user_pin(
+  p_target_person_id UUID,
+  p_temporary_pin TEXT
+)
+RETURNS JSONB AS $$
+DECLARE
+  v_clean_temp TEXT;
+  v_account_id UUID;
+BEGIN
+  v_clean_temp := TRIM(p_temporary_pin);
+
+  IF v_clean_temp !~ '^[0-9]{4}$' THEN
+    RETURN jsonb_build_object('success', false, 'message', 'Temporary PIN must be exactly 4 numeric digits.');
+  END IF;
+
+  SELECT id INTO v_account_id
+  FROM public.user_accounts
+  WHERE person_id = p_target_person_id;
+
+  IF NOT FOUND THEN
+    INSERT INTO public.user_accounts (
+      person_id,
+      pin_hash,
+      pin_must_change,
+      failed_attempts,
+      is_locked,
+      is_active
+    ) VALUES (
+      p_target_person_id,
+      extensions.crypt(v_clean_temp, extensions.gen_salt('bf', 10)),
+      TRUE,
+      0,
+      FALSE,
+      TRUE
+    )
+    RETURNING id INTO v_account_id;
+  ELSE
+    UPDATE public.user_accounts
+    SET pin_hash = extensions.crypt(v_clean_temp, extensions.gen_salt('bf', 10)),
+        pin_must_change = TRUE,
+        failed_attempts = 0,
+        is_locked = FALSE,
+        locked_at = NULL
+    WHERE id = v_account_id;
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'message', 'Temporary PIN assigned. User will be forced to change PIN on next login.');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, extensions, pg_temp;
+
+GRANT EXECUTE ON FUNCTION public.reset_user_pin(UUID, TEXT) TO anon, authenticated, service_role;
 
 -- Reload PostgREST schema cache
 NOTIFY pgrst, 'reload schema';
