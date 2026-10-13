@@ -246,7 +246,7 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
             {[
-              { clause: 'Clause 4: Context of Organization', status: activeDocs.some(d => d.doc_number.includes('QM') || d.title.toLowerCase().includes('context')) ? 'Conforming' : 'Baseline Active', docs: activeDocs.filter(d => d.doc_number.includes('QM')).map(d => d.doc_number).join(', ') || 'QM-001' },
+              { clause: 'Clause 4: Context of Organization', status: activeDocs.some(d => d.doc_number.includes('QM') || d.title.toLowerCase().includes('context')) ? 'Conforming' : 'Baseline Active', docs: activeDocs.filter(d => d.doc_number.includes('QM')).map(d => d.doc_number).join(', ') || 'QM Master' },
               { clause: 'Clause 5: Leadership & Policy', status: latestReview ? 'Executive Reviewed' : 'Pending Review', docs: latestReview ? latestReview.review_code : 'QM Policy' },
               { clause: 'Clause 6: Planning & Risk (FMEA)', status: 'Risk Register Standard', docs: 'APQP FMEA' },
               { clause: 'Clause 7: Support & Calibration', status: 'Gage Metrology System', docs: 'Metrology' },
@@ -283,24 +283,30 @@ export const QmsExecutiveOverview: React.FC<Props> = ({
             </p>
 
             <div className="space-y-3">
-              {upcomingAudits.map((a) => (
-                <div key={a.id} className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-md bg-purple-500/20 text-purple-300 flex flex-col items-center justify-center shrink-0 text-[10px] font-bold">
-                    <span>{a.start_date.slice(5, 7)}</span>
-                    <span className="text-[9px] text-purple-400 uppercase">{a.start_date.slice(8, 10)}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-white truncate">{a.audit_number}</span>
-                      <span className="text-[10px] uppercase font-semibold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded">
-                        {a.audit_type.replace('EXTERNAL_', '')}
-                      </span>
+              {upcomingAudits.length > 0 ? (
+                upcomingAudits.map((a) => (
+                  <div key={a.id} className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-md bg-purple-500/20 text-purple-300 flex flex-col items-center justify-center shrink-0 text-[10px] font-bold">
+                      <span>{a.start_date.slice(5, 7)}</span>
+                      <span className="text-[9px] text-purple-400 uppercase">{a.start_date.slice(8, 10)}</span>
                     </div>
-                    <p className="text-xs text-slate-300 truncate mt-0.5">{a.title}</p>
-                    <p className="text-[11px] text-slate-500 mt-1">Lead: {a.lead_auditor}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white truncate">{a.audit_number}</span>
+                        <span className="text-[10px] uppercase font-semibold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded">
+                          {a.audit_type.replace('EXTERNAL_', '')}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 truncate mt-0.5">{a.title}</p>
+                      <p className="text-[11px] text-slate-500 mt-1">Lead: {a.lead_auditor}</p>
+                    </div>
                   </div>
+                ))
+              ) : (
+                <div className="p-3.5 rounded-lg bg-slate-950/40 border border-dashed border-slate-800 text-xs text-slate-500 text-center font-mono">
+                  No upcoming audits scheduled
                 </div>
-              ))}
+              )}
 
               {/* Document Control Pulse */}
               <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800">

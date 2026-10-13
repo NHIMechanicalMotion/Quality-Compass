@@ -52,7 +52,7 @@ import { fetchOdooSummaryData } from '../../services/odooService';
 import { 
   OPERATING_COMPANIES, 
   type OperatingCompanyId, 
-  matchOperatingCompany 
+  matchRecordOperatingCompany
 } from '../../data/operatingCompanies';
 import { 
   calculateDefectPareto, 
@@ -112,7 +112,7 @@ export const QmsDashboard: React.FC<Props> = ({
     }
 
     const filteredRecords = (odooSummary.quality_records || []).filter((r) =>
-      matchOperatingCompany(r.company_name, selectedCompany)
+      matchRecordOperatingCompany(r, selectedCompany)
     );
 
     const filteredPareto = calculateDefectPareto(filteredRecords);
@@ -123,17 +123,34 @@ export const QmsDashboard: React.FC<Props> = ({
     const scrapYtd = filteredRecords.reduce((sum, r) => sum + (r.scrap_cost || 0), 0);
     const currentTrend = filteredTrends[filteredTrends.length - 1];
 
+    const piecesProduced = filteredTrends.reduce((sum, m) => sum + (m.total_units || 0), 0);
+    const scrapQty = filteredTrends.reduce((sum, m) => sum + (m.defective_units || 0), 0);
+    const companyMoPpm = currentTrend?.ppm ?? (piecesProduced > 0 ? Math.round((scrapQty / piecesProduced) * 1_000_000) : 0);
+    const companyFpy = currentTrend?.fpy_percentage ?? 100.0;
+
     return {
       ...odooSummary,
       quality_records: filteredRecords,
       defect_pareto: filteredPareto,
-      ppm_monthly_trends: filteredTrends.length > 0 ? filteredTrends : odooSummary.ppm_monthly_trends,
+      ppm_monthly_trends: filteredTrends,
       workcenter_performance: filteredWc,
       open_quality_alerts: openAlerts.length,
       mrb_quarantined_lots: mrbLots.length,
-      scrap_ytd: scrapYtd > 0 ? scrapYtd : odooSummary.scrap_ytd,
-      overall_ppm: currentTrend?.ppm ?? odooSummary.overall_ppm,
-      fpy_percentage: currentTrend?.fpy_percentage ?? odooSummary.fpy_percentage,
+      scrap_ytd: scrapYtd,
+      overall_ppm: companyMoPpm,
+      fpy_percentage: companyFpy,
+      mo_pieces_produced: piecesProduced,
+      mo_scrap_qty: scrapQty,
+      mo_scrap_ppm: companyMoPpm,
+      fg_make_sold_12m: 0,
+      fg_make_returned_12m: 0,
+      fg_make_ppm: 0,
+      fg_buy_sold_12m: 0,
+      fg_buy_returned_12m: 0,
+      fg_buy_ppm: 0,
+      fg_total_sold_12m: 0,
+      fg_total_returned_12m: 0,
+      fg_total_ppm: 0,
       recent_alerts: filteredRecords.slice(0, 10).map((r) => ({
         id: r.id,
         alert_code: r.alert_code,

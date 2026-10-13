@@ -162,3 +162,47 @@ export function matchOperatingCompany(companyValue?: string | number | null, sel
       return true;
   }
 }
+
+/**
+ * Accurately match any QMS or Odoo record to an OperatingCompanyId.
+ * Checks explicit company_name, metadata comments in notes, and NHIMM product naming taxonomy.
+ */
+export function matchRecordOperatingCompany(
+  record: {
+    company_name?: string | null;
+    product_name?: string | null;
+    product_sku?: string | null;
+    customer_name?: string | null;
+    notes?: string | null;
+  },
+  selectedCompany: OperatingCompanyId
+): boolean {
+  if (selectedCompany === 'ALL') return true;
+
+  // 1. Direct company_name match
+  if (record.company_name) {
+    return matchOperatingCompany(record.company_name, selectedCompany);
+  }
+
+  // 2. Embedded metadata in notes (e.g. <!-- meta:{"company":"..."} -->)
+  if (record.notes && record.notes.includes('<!-- meta:')) {
+    const metaMatch = record.notes.match(/<!-- meta:.*?"company"\s*:\s*"([^"]+)".*?-->/);
+    if (metaMatch && metaMatch[1]) {
+      return matchOperatingCompany(metaMatch[1], selectedCompany);
+    }
+  }
+
+  // 3. Fallback inference based on product naming, SKU conventions & customer patterns
+  const text = `${record.product_sku || ''} ${record.product_name || ''} ${record.customer_name || ''}`.toLowerCase();
+
+  const isTerre = text.includes('terre') || text.includes('sprocket') || text.includes('v-groove') || /35\d{6}/.test(text);
+  const isMakers = text.includes('maker') || text.includes('automation') || /\bam\d+/.test(text) || text.includes('fixture') || text.includes('robot');
+  const isMantis = text.includes('mantis') || text.includes('conveyor') || text.includes('lagging') || text.includes('wing pulley');
+
+  if (selectedCompany === 'TERRE') return isTerre;
+  if (selectedCompany === 'MAKERS') return isMakers;
+  if (selectedCompany === 'MANTIS') return isMantis;
+  if (selectedCompany === 'NHI') return !isTerre && !isMakers && !isMantis;
+
+  return true;
+}

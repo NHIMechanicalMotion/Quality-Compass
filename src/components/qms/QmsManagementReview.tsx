@@ -432,12 +432,14 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            onClick={() => setIsMinutesExportModalOpen(true)}
-            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-all flex items-center gap-1.5 shadow-sm"
-          >
-            <Printer className="w-3.5 h-3.5 text-slate-300" /> Export Formal Minutes
-          </button>
+          {selectedReview && (
+            <button
+              onClick={() => setIsMinutesExportModalOpen(true)}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-all flex items-center gap-1.5 shadow-sm"
+            >
+              <Printer className="w-3.5 h-3.5 text-slate-300" /> Export Formal Minutes
+            </button>
+          )}
 
           <button
             onClick={() => {
@@ -452,8 +454,9 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
       </div>
 
       {/* Review Carousel & Selector */}
-      <div className="flex items-center gap-3 overflow-x-auto pb-2">
-        {reviews.map((rev) => {
+      {reviews.length > 0 && (
+        <div className="flex items-center gap-3 overflow-x-auto pb-2">
+          {reviews.map((rev) => {
           const isSelected = rev.id === selectedReview?.id;
           return (
             <div
@@ -486,6 +489,7 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
           );
         })}
       </div>
+      )}
 
       {/* Live Tie-Ins Summary Banner */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -597,14 +601,14 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
                     Rollover Prior Actions
                   </button>
                   <span className="text-xs px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-mono font-medium">
-                    {selectedReview.inputs_evaluated.length} Items Built
+                    {(selectedReview.inputs_evaluated || []).length} Items Built
                   </span>
                 </div>
               </div>
 
               {/* Agenda Items List */}
               <div className="space-y-3">
-                {selectedReview.inputs_evaluated.map((input, idx) => {
+                {(selectedReview.inputs_evaluated || []).map((input, idx) => {
                   const isAuditClause = input.clause === '9.3.2.c.6';
                   const isCapaClause = input.clause === '9.3.2.c.4';
                   const isOdooClause = input.clause === '9.3.2.c.3';
@@ -1574,7 +1578,7 @@ export const QmsManagementReviewComponent: React.FC<Props> = ({
               <div>
                 <strong className="text-white block mb-1">Clause 9.3 Evaluation Matrix:</strong>
                 <div className="space-y-1.5 mt-2">
-                  {selectedReview.inputs_evaluated.map(inp => (
+                  {(selectedReview.inputs_evaluated || []).map(inp => (
                     <div key={inp.clause} className="p-2 bg-slate-900 rounded flex justify-between items-start gap-2">
                       <div>
                         <span className="font-mono text-[10px] text-emerald-400 font-bold block">{inp.clause} - {inp.topic}</span>

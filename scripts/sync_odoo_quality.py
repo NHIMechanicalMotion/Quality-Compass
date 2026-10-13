@@ -541,6 +541,19 @@ def normalize_detail_records(alerts, checks, scraps, odoo_base_url="https://odoo
         company_id_val = company_info[0] if len(company_info) > 0 and isinstance(company_info, (list, tuple)) else None
         company_name_val = company_info[1] if len(company_info) > 1 else ""
 
+        meta_payload = {
+            "company": company_name_val,
+            "odoo_id": a_id,
+            "odoo_url": f"{clean_base}/web#id={a_id}&model=quality.alert&view_type=form",
+            "scrap_id": linked_scrap_id,
+            "scrap_url": linked_scrap_url,
+            "scrap_qty": linked_scrap_qty,
+            "mo_id": linked_mo_id,
+            "mo_url": linked_mo_url,
+        }
+        raw_notes = a.get("description") or ""
+        encoded_notes = f"{raw_notes}\n<!-- meta:{json.dumps(meta_payload)} -->" if raw_notes else f"<!-- meta:{json.dumps(meta_payload)} -->"
+
         normalized.append({
             "id": f"odoo-alert-{a_id}",
             "alert_code": a.get("name") or f"QA-{a_id}",
@@ -558,7 +571,7 @@ def normalize_detail_records(alerts, checks, scraps, odoo_base_url="https://odoo
             "date": date_val,
             "stage": stage_mapped,
             "is_quarantined_mrb": True if stage_mapped in ["New", "Confirmed", "Action Proposed"] else False,
-            "notes": a.get("description") or "",
+            "notes": encoded_notes,
             "odoo_id": a_id,
             "odoo_url": f"{clean_base}/web#id={a_id}&model=quality.alert&view_type=form",
             "linked_scrap_id": linked_scrap_id,
@@ -813,8 +826,15 @@ def upsert_to_supabase(sb_client: Client, records, rollups):
             except Exception as exc2:
                 print(f"Notice (odoo_quality_ppm_metrics base upsert): {exc2}")
 
-    # 3. Upsert Defect Pareto
+    # 3. Upsert Defect Pareto (Strictly Quality Alert Failure Modes)
     if rollups.get("pareto"):
+        try:
+            # Purge any legacy scrap rows so Pareto represents real root causes
+            sb_client.table("odoo_quality_defect_pareto").delete().in_("reason", ["Inventory Scrap", "Manufacturing Scrap"]).execute()
+            sb_client.table("odoo_quality_ppm_metrics").delete().eq("period", "2025-03").execute()
+        except Exception:
+            pass
+
         try:
             res = sb_client.table("odoo_quality_defect_pareto").upsert(rollups["pareto"], on_conflict="reason").execute()
             print(f"Upserted {len(rollups['pareto'])} items into 'odoo_quality_defect_pareto'.")
@@ -914,8 +934,23 @@ def main():
         written_count = upsert_to_supabase(sb, records, rollups)
 
         duration = time.time() - start_time
-        summary_msg = f"Synced {len(records)} Quality Alerts. In-Process MO Scrap PPM: {rollups['overall_ppm']}, FG Return PPM: {rollups['fg_total_ppm']}."
-        log_sync_result(sb, "SUCCESS", written_count, duration, summary_msg)
+        summary_payload = {
+            "summary": f"Synced {len(records)} Quality Alerts. In-Process MO Scrap PPM: {rollups['overall_ppm']}, FG Return PPM: {rollups['fg_total_ppm']}.",
+            "overall_mo_ppm": rollups.get("overall_ppm", 0),
+            "mo_pieces_produced": rollups.get("mo_pieces_produced", 0),
+            "mo_scrap_qty": rollups.get("mo_scrap_qty", 0),
+            "fpy_percentage": rollups.get("fpy_percentage", 100.0),
+            "fg_make_ppm": rollups.get("fg_make_ppm", 0),
+            "fg_make_sold_12m": rollups.get("fg_make_sold_12m", 0),
+            "fg_make_returned_12m": rollups.get("fg_make_returned_12m", 0),
+            "fg_buy_ppm": rollups.get("fg_buy_ppm", 0),
+            "fg_buy_sold_12m": rollups.get("fg_buy_sold_12m", 0),
+            "fg_buy_returned_12m": rollups.get("fg_buy_returned_12m", 0),
+            "fg_total_ppm": rollups.get("fg_total_ppm", 0),
+            "fg_total_sold_12m": rollups.get("fg_total_sold_12m", 0),
+            "fg_total_returned_12m": rollups.get("fg_total_returned_12m", 0),
+        }
+        log_sync_result(sb, "SUCCESS", written_count, duration, json.dumps(summary_payload))
 
         print(f"=== Sync Complete in {duration:.2f}s ===")
 

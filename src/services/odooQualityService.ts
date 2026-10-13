@@ -170,6 +170,20 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
   let lastSyncTimeStr = 'Hourly via GitHub Actions (Awaiting first run)';
   let isLiveConnected = false;
 
+  let loggedMoPpm: number | undefined;
+  let loggedMoProduced: number | undefined;
+  let loggedMoScrap: number | undefined;
+  let loggedFpy: number | undefined;
+  let loggedFgMakePpm: number | undefined;
+  let loggedFgMakeSold: number | undefined;
+  let loggedFgMakeRet: number | undefined;
+  let loggedFgBuyPpm: number | undefined;
+  let loggedFgBuySold: number | undefined;
+  let loggedFgBuyRet: number | undefined;
+  let loggedFgTotalPpm: number | undefined;
+  let loggedFgTotalSold: number | undefined;
+  let loggedFgTotalRet: number | undefined;
+
   // 1. Check connection to Supabase and query synced tables
   try {
     const { data: dbRecords, error: recError } = await db
@@ -183,8 +197,36 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
         .filter((r: any) => !String(r.id || '').startsWith('odoo-scrap-'))
         .map((r: any) => {
           const rawId = String(r.id || '');
-          const odooId = r.odoo_id || (rawId.startsWith('odoo-alert-') ? parseInt(rawId.replace('odoo-alert-', ''), 10) : undefined);
-          const odooUrl = r.odoo_url || (odooId ? `https://odoo.nhi-mfg.com/web#id=${odooId}&model=quality.alert&view_type=form` : undefined);
+          let odooId = r.odoo_id || (rawId.startsWith('odoo-alert-') ? parseInt(rawId.replace('odoo-alert-', ''), 10) : undefined);
+          let odooUrl = r.odoo_url || (odooId ? `https://odoo.nhi-mfg.com/web#id=${odooId}&model=quality.alert&view_type=form` : undefined);
+          let linkedScrapId = r.linked_scrap_id;
+          let linkedScrapUrl = r.linked_scrap_url;
+          let linkedScrapQty = r.linked_scrap_qty ? Number(r.linked_scrap_qty) : undefined;
+          let linkedMoId = r.linked_mo_id;
+          let linkedMoUrl = r.linked_mo_url;
+          let metaCompany = r.company_name;
+          let cleanNotes = r.notes || '';
+
+          // Parse embedded metadata from sync script if present in notes
+          if (cleanNotes.includes('<!-- meta:')) {
+            try {
+              const metaMatch = cleanNotes.match(/<!-- meta:(.*?) -->/);
+              if (metaMatch && metaMatch[1]) {
+                const meta = JSON.parse(metaMatch[1]);
+                if (meta.company && !metaCompany) metaCompany = meta.company;
+                if (meta.odoo_id && !odooId) odooId = meta.odoo_id;
+                if (meta.odoo_url && !odooUrl) odooUrl = meta.odoo_url;
+                if (meta.scrap_id && !linkedScrapId) linkedScrapId = meta.scrap_id;
+                if (meta.scrap_url && !linkedScrapUrl) linkedScrapUrl = meta.scrap_url;
+                if (meta.scrap_qty !== undefined && !linkedScrapQty) linkedScrapQty = Number(meta.scrap_qty);
+                if (meta.mo_id && !linkedMoId) linkedMoId = meta.mo_id;
+                if (meta.mo_url && !linkedMoUrl) linkedMoUrl = meta.mo_url;
+              }
+              cleanNotes = cleanNotes.replace(/<!-- meta:.*? -->/g, '').trim();
+            } catch {
+              // Ignore parse error
+            }
+          }
 
           // Sanitize old synthetic placeholder data
           const isOldPlaceholder = r.quantity_inspected === 1000 && r.calculated_ppm === 1000;
@@ -210,38 +252,53 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
             date: r.date,
             stage: r.stage || 'New',
             is_quarantined_mrb: Boolean(r.is_quarantined_mrb),
-            notes: r.notes || '',
+            notes: cleanNotes,
             odoo_id: odooId,
             odoo_url: odooUrl,
-            linked_scrap_id: r.linked_scrap_id,
-            linked_scrap_url: r.linked_scrap_url,
-            linked_scrap_qty: r.linked_scrap_qty ? Number(r.linked_scrap_qty) : undefined,
-            linked_mo_id: r.linked_mo_id,
-            linked_mo_url: r.linked_mo_url,
+            linked_scrap_id: linkedScrapId,
+            linked_scrap_url: linkedScrapUrl,
+            linked_scrap_qty: linkedScrapQty,
+            linked_mo_id: linkedMoId,
+            linked_mo_url: linkedMoUrl,
             company_id: r.company_id,
-            company_name: r.company_name,
+            company_name: metaCompany,
           };
         });
     }
 
-    // Query pre-aggregated monthly metrics if present
+    // Query pre-aggregated monthly metrics if present (excluding legacy test month 2025-03)
     const { data: dbPpm } = await db
       .from('odoo_quality_ppm_metrics')
       .select('*')
       .order('period', { ascending: true });
     
     if (dbPpm && dbPpm.length > 0) {
-      ppmMonthlyTrends = dbPpm;
+      ppmMonthlyTrends = dbPpm.filter((m: any) => !(m.period === '2025-03' && m.total_units === 1000 && m.ppm === 1000));
     }
 
-    // Query pre-aggregated pareto if present
+    // Query pre-aggregated pareto if present (sanitizing out raw scrap movements)
     const { data: dbPareto } = await db
       .from('odoo_quality_defect_pareto')
       .select('*')
       .order('count', { ascending: false });
 
     if (dbPareto && dbPareto.length > 0) {
-      pareto = dbPareto;
+      const nonScrapPareto = dbPareto.filter((p: any) => !p.reason.toLowerCase().includes('scrap'));
+      if (nonScrapPareto.length > 0) {
+        const totalAlertDefects = nonScrapPareto.reduce((sum: number, p: any) => sum + (p.count || 0), 0);
+        let cum = 0;
+        pareto = nonScrapPareto.map((p: any) => {
+          const pct = totalAlertDefects > 0 ? Number(((p.count / totalAlertDefects) * 100).toFixed(1)) : 0;
+          cum += pct;
+          return {
+            ...p,
+            percentage: pct,
+            cumulative_percentage: Math.min(100.0, Number(cum.toFixed(1))),
+          };
+        });
+      } else {
+        pareto = calculateDefectPareto(records);
+      }
     }
 
     // Query pre-aggregated workcenters if present
@@ -254,7 +311,6 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
       workcenters = dbWc;
     }
 
-    // Query latest sync log
     const { data: logData } = await db
       .from('odoo_quality_sync_logs')
       .select('*')
@@ -266,6 +322,34 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
       const dt = new Date(latest.sync_timestamp);
       lastSyncTimeStr = `${dt.toLocaleDateString()} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${latest.status})`;
       isLiveConnected = latest.status === 'SUCCESS';
+
+      if (latest.message) {
+        try {
+          if (latest.message.startsWith('{')) {
+            const parsed = JSON.parse(latest.message);
+            loggedMoPpm = parsed.overall_mo_ppm;
+            loggedMoProduced = parsed.mo_pieces_produced;
+            loggedMoScrap = parsed.mo_scrap_qty;
+            loggedFpy = parsed.fpy_percentage;
+            loggedFgMakePpm = parsed.fg_make_ppm;
+            loggedFgMakeSold = parsed.fg_make_sold_12m;
+            loggedFgMakeRet = parsed.fg_make_returned_12m;
+            loggedFgBuyPpm = parsed.fg_buy_ppm;
+            loggedFgBuySold = parsed.fg_buy_sold_12m;
+            loggedFgBuyRet = parsed.fg_buy_returned_12m;
+            loggedFgTotalPpm = parsed.fg_total_ppm;
+            loggedFgTotalSold = parsed.fg_total_sold_12m;
+            loggedFgTotalRet = parsed.fg_total_returned_12m;
+          } else {
+            const moMatch = latest.message.match(/In-Process MO Scrap PPM:\s*(\d+)/i);
+            const fgMatch = latest.message.match(/FG Return PPM:\s*(\d+)/i);
+            if (moMatch) loggedMoPpm = parseInt(moMatch[1], 10);
+            if (fgMatch) loggedFgTotalPpm = parseInt(fgMatch[1], 10);
+          }
+        } catch {
+          // Ignore parse error
+        }
+      }
     }
   } catch (err) {
     console.warn('Notice querying odoo_quality_* tables from Supabase:', err);
@@ -337,21 +421,21 @@ export async function fetchFullOdooQualitySummary(): Promise<OdooSyncSummary> {
     supplier_rma_cost: 0,
     last_synced_at: lastSyncTimeStr,
     connection_status: isLiveConnected ? 'CONNECTED' : 'DISCONNECTED',
-    overall_ppm: overallPpm,
+    overall_ppm: loggedMoPpm ?? overallPpm,
     target_ppm: targetPpm,
-    fpy_percentage: fpy,
-    mo_pieces_produced: ([...ppmMonthlyTrends].reverse().find(m => (m.mo_pieces_produced || 0) > 0) || currentMonthMetric)?.mo_pieces_produced ?? 0,
-    mo_scrap_qty: ([...ppmMonthlyTrends].reverse().find(m => (m.mo_scrap_qty || 0) > 0) || currentMonthMetric)?.mo_scrap_qty ?? 0,
-    mo_scrap_ppm: ([...ppmMonthlyTrends].reverse().find(m => (m.mo_scrap_ppm || 0) > 0) || currentMonthMetric)?.mo_scrap_ppm ?? 0,
-    fg_make_sold_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_make_sold_12m || 0) > 0) || currentMonthMetric)?.fg_make_sold_12m ?? 0,
-    fg_make_returned_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_make_returned_12m || 0) > 0) || currentMonthMetric)?.fg_make_returned_12m ?? 0,
-    fg_make_ppm: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_make_ppm || 0) > 0) || currentMonthMetric)?.fg_make_ppm ?? 0,
-    fg_buy_sold_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_buy_sold_12m || 0) > 0) || currentMonthMetric)?.fg_buy_sold_12m ?? 0,
-    fg_buy_returned_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_buy_returned_12m || 0) > 0) || currentMonthMetric)?.fg_buy_returned_12m ?? 0,
-    fg_buy_ppm: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_buy_ppm || 0) > 0) || currentMonthMetric)?.fg_buy_ppm ?? 0,
-    fg_total_sold_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_total_sold_12m || 0) > 0) || currentMonthMetric)?.fg_total_sold_12m ?? 0,
-    fg_total_returned_12m: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_total_returned_12m || 0) > 0) || currentMonthMetric)?.fg_total_returned_12m ?? 0,
-    fg_total_ppm: ([...ppmMonthlyTrends].reverse().find(m => (m.fg_total_ppm || 0) > 0) || currentMonthMetric)?.fg_total_ppm ?? 0,
+    fpy_percentage: loggedFpy ?? fpy,
+    mo_pieces_produced: loggedMoProduced ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.mo_pieces_produced || 0) > 0) || currentMonthMetric)?.mo_pieces_produced ?? 0),
+    mo_scrap_qty: loggedMoScrap ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.mo_scrap_qty || 0) > 0) || currentMonthMetric)?.mo_scrap_qty ?? 0),
+    mo_scrap_ppm: loggedMoPpm ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.mo_scrap_ppm || 0) > 0) || currentMonthMetric)?.mo_scrap_ppm ?? overallPpm),
+    fg_make_sold_12m: loggedFgMakeSold ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.fg_make_sold_12m || 0) > 0) || currentMonthMetric)?.fg_make_sold_12m ?? 0),
+    fg_make_returned_12m: loggedFgMakeRet ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.fg_make_returned_12m || 0) > 0) || currentMonthMetric)?.fg_make_returned_12m ?? 0),
+    fg_make_ppm: loggedFgMakePpm ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.fg_make_ppm || 0) > 0) || currentMonthMetric)?.fg_make_ppm ?? 0),
+    fg_buy_sold_12m: loggedFgBuySold ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.fg_buy_sold_12m || 0) > 0) || currentMonthMetric)?.fg_buy_sold_12m ?? 0),
+    fg_buy_returned_12m: loggedFgBuyRet ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.fg_buy_returned_12m || 0) > 0) || currentMonthMetric)?.fg_buy_returned_12m ?? 0),
+    fg_buy_ppm: loggedFgBuyPpm ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.fg_buy_ppm || 0) > 0) || currentMonthMetric)?.fg_buy_ppm ?? 0),
+    fg_total_sold_12m: loggedFgTotalSold ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.fg_total_sold_12m || 0) > 0) || currentMonthMetric)?.fg_total_sold_12m ?? 0),
+    fg_total_returned_12m: loggedFgTotalRet ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.fg_total_returned_12m || 0) > 0) || currentMonthMetric)?.fg_total_returned_12m ?? 0),
+    fg_total_ppm: loggedFgTotalPpm ?? (([ ...ppmMonthlyTrends ].reverse().find(m => (m.fg_total_ppm || 0) > 0) || currentMonthMetric)?.fg_total_ppm ?? 0),
     recent_alerts: alerts,
     ppm_monthly_trends: ppmMonthlyTrends,
     defect_pareto: pareto,
