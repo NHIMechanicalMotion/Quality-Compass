@@ -364,6 +364,8 @@ BEGIN
     last_name,
     job_title,
     operating_company,
+    department_id,
+    shift,
     status
   ) VALUES (
     '1015',
@@ -371,12 +373,16 @@ BEGIN
     'Vance',
     'CNC Machinist L2',
     'NHI',
+    'CNC Machining & Turning',
+    'Shift 1 (Day)',
     'ACTIVE'
   )
   ON CONFLICT (employee_number) DO UPDATE
     SET first_name = EXCLUDED.first_name,
         last_name = EXCLUDED.last_name,
         job_title = EXCLUDED.job_title,
+        department_id = EXCLUDED.department_id,
+        shift = EXCLUDED.shift,
         status = 'ACTIVE'
   RETURNING id INTO v_person_id;
 
