@@ -233,6 +233,7 @@ export interface ControlledDocument {
   source_vault_id?: string | null;
   source_file_name?: string | null;
   source_file_type?: string | null;
+  storage_path?: string | null;
   watermark_text?: string;
   revisions?: QmsDocumentRevision[];
   created_at?: string;
@@ -251,6 +252,7 @@ export interface SourceVaultItem {
   uploaded_by: string;
   uploaded_at: string;
   file_url?: string | null;
+  storage_path?: string | null;
   is_checked_out: boolean;
   checked_out_by?: string | null;
   notes?: string;
@@ -267,8 +269,14 @@ export interface WorkingDocument {
   stage: 'DRAFT' | 'IN_REVIEW' | 'PENDING_APPROVAL';
   source_file_name?: string;
   source_file_type?: string;
+  source_file_size_bytes?: number;
+  source_file_url?: string | null;
+  source_storage_path?: string | null;
   source_vault_ref?: string;
-  draft_pdf_url?: string;
+  draft_pdf_url?: string | null;
+  draft_pdf_name?: string | null;
+  draft_pdf_storage_path?: string | null;
+  draft_pdf_size_bytes?: number;
   change_summary: string;
   created_at: string;
   updated_at: string;

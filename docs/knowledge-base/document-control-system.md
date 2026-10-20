@@ -35,8 +35,10 @@ To support active engineering authoring while guaranteeing regulatory compliance
 ```
 
 Component: `src/components/qms/QmsDocumentControl.tsx`  
+Storage Service: `src/services/qmsStorageService.ts`  
 Types: `src/types/qms.ts` (`ControlledDocument`, `SourceVaultItem`, `WorkingDocument`)  
-Supabase Tables: `qms_documents`, `qms_document_revisions`
+Supabase Tables: `qms_documents`, `qms_document_revisions`  
+Supabase Storage Bucket: `qms-documents` (`vault/`, `working/`, `controlled/` paths with IndexedDB offline fallback)
 
 ---
 
@@ -70,11 +72,16 @@ Tier 2 serves as the secure digital repository for native, editable authoring as
 
 ---
 
-## 4. Tier 3: Isolated Working Documents (Draft Sandbox)
+## 4. Tier 3: Isolated Working Documents (Draft Sandbox) & Drag-and-Drop Intake
 
-Tier 3 provides a collaborative staging workspace for documents undergoing active revision:
+Tier 3 provides a collaborative staging workspace for documents undergoing active revision or initial drafting:
 - **Stages:** `DRAFT` $\rightarrow$ `IN_REVIEW` $\rightarrow$ `PENDING_APPROVAL`.
 - **Sandbox Isolation:** Working drafts are visible only inside the authoring tab and cannot be accessed from plant floor work stations or audit inspections until formally promoted.
+- **Direct Drag-and-Drop Intake:**
+  - Engineers can drag and drop native Word (`.docx`), Excel (`.xlsx`), AutoCAD (`.dwg`), PowerPoint (`.pptx`), or draft PDF files directly into the Tier 3 dropzone.
+  - An intelligent regex parser automatically extracts procedure codes (e.g. `SOP-QMS-001`), revision levels (`Rev A`, `Rev B`), categories, and human-readable document titles directly from the filename.
+  - If the document code matches an existing master in the repository catalog, the system pre-selects the master record and auto-increments the target revision.
+  - If the document is brand-new, the system pre-populates the new procedure registration form with the uploaded file already attached.
 - **Change Summary:** Authors must document proposed changes before submitting for management approval.
 
 ---
@@ -104,3 +111,19 @@ flowchart TD
 4. The previous Tier-1 revision is automatically copied into `qms_document_revisions` as an archived immutable record.
 5. The active `qms_documents` record is updated with the new revision code, effective date, and PDF URL.
 6. The working document record in Tier 3 is closed.
+
+---
+
+## 6. Binary Storage & Local-Resilient Storage Engine
+
+To support real-world `.docx`, `.xlsx`, and `.pdf` files without breaking when working offline or in staging:
+- **Supabase Storage Bucket (`qms-documents`)**:
+  - `vault/{doc_number}/{revision}/{file_name}`: Master editable authoring files.
+  - `working/{doc_number}/{revision}/{file_name}`: Working drafts under active review.
+  - `controlled/{doc_number}/{revision}/{file_name}`: Released, read-only controlled PDFs.
+- **IndexedDB Resilient Cache (`qc_document_storage_db`)**:
+  - Automatically caches uploaded binaries in the client browser's IndexedDB.
+  - If the remote Supabase bucket has not yet been provisioned or is temporarily unreachable, files are preserved locally and can be viewed or downloaded without failure.
+- **Check-Out Mechanics**:
+  - Checking out a source file in Tier 2 automatically initiates a direct download of the native master file to the author's local workstation for editing in Microsoft Word or Excel, while locking the vault entry from concurrent modification.
+

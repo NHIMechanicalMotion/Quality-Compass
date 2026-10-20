@@ -71,6 +71,14 @@ export async function createControlledDocument(doc: Partial<ControlledDocument>)
         next_review_date: doc.next_review_date,
         description: doc.description,
         file_url: doc.file_url,
+        pdf_file_url: doc.pdf_file_url || null,
+        pdf_file_name: doc.pdf_file_name || null,
+        pdf_file_size_bytes: doc.pdf_file_size_bytes || null,
+        approved_by: doc.approved_by || null,
+        approved_at: doc.approved_at || null,
+        source_vault_id: doc.source_vault_id || null,
+        source_file_name: doc.source_file_name || null,
+        source_file_type: doc.source_file_type || null,
       },
     ])
     .select()

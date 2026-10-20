@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   FileText, 
   Plus, 
@@ -12,7 +12,14 @@ import {
   FileCode, 
   FileSpreadsheet, 
   File, 
-  Eye 
+  Eye,
+  Upload,
+  AlertCircle,
+  FileCheck,
+  RefreshCw,
+  ExternalLink,
+  FolderOpen,
+  FolderPlus
 } from 'lucide-react';
 import type { 
   ControlledDocument, 
@@ -21,6 +28,14 @@ import type {
   SourceVaultItem,
   WorkingDocument
 } from '../../types/qms';
+import { 
+  uploadVaultFile, 
+  uploadWorkingFile, 
+  uploadControlledPdfFile, 
+  downloadDocumentFile, 
+  getPdfViewUrl 
+} from '../../services/qmsStorageService';
+import { useAuth } from '../../context/AuthContext';
 
 interface Props {
   documents: ControlledDocument[];
@@ -46,14 +61,42 @@ const DEPARTMENTS = [
   'Executive',
 ];
 
-// Initial empty state for native vault files and working drafts
-const INITIAL_VAULT_ITEMS: SourceVaultItem[] = [];
-const INITIAL_WORKING_DOCS: WorkingDocument[] = [];
+const VAULT_STORAGE_KEY = 'qc_qms_source_vault_items_v2';
+const WORKING_STORAGE_KEY = 'qc_qms_working_documents_v2';
+
+function loadStoredVault(): SourceVaultItem[] {
+  try {
+    const raw = localStorage.getItem(VAULT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredWorking(): WorkingDocument[] {
+  try {
+    const raw = localStorage.getItem(WORKING_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
 
 export const QmsDocumentControl: React.FC<Props> = ({
   documents,
   onAddDocument,
 }) => {
+  // Safe authentication resolution (non-blocking fallback for pre-login)
+  let currentAuthorName = 'Sarah Jenkins (QA)';
+  try {
+    const auth = useAuth();
+    if (auth?.currentUser?.person) {
+      currentAuthorName = `${auth.currentUser.person.first_name} ${auth.currentUser.person.last_name}`;
+    }
+  } catch {
+    // AuthProvider not mounted or fallback
+  }
+
   // Consensus-aligned 3-tier view selector
   const [activeTier, setActiveTier] = useState<'CONTROLLED_PDFS' | 'SOURCE_VAULT' | 'WORKING_DOCS'>('CONTROLLED_PDFS');
 
@@ -63,29 +106,394 @@ export const QmsDocumentControl: React.FC<Props> = ({
 
   // Modals
   const [isAddDocModalOpen, setIsAddDocModalOpen] = useState(false);
-
-  // PDF Viewer Modal
-  const [viewingPdfDoc, setViewingPdfDoc] = useState<ControlledDocument | null>(null);
-
-  // Promote Working Document Modal
-  const [promotingDoc, setPromotingDoc] = useState<WorkingDocument | null>(null);
-  const [approverName, setApproverName] = useState('');
-  const [approvalNotes, setApprovalNotes] = useState('');
-
-  // Tier 2 & 3 local states
-  const [vaultItems, setVaultItems] = useState<SourceVaultItem[]>(INITIAL_VAULT_ITEMS);
-  const [workingDocs, setWorkingDocs] = useState<WorkingDocument[]>(INITIAL_WORKING_DOCS);
+  const [isDepositVaultModalOpen, setIsDepositVaultModalOpen] = useState(false);
   const [isAddWorkingDocModalOpen, setIsAddWorkingDocModalOpen] = useState(false);
+
+  // PDF Viewer Modal State
+  const [viewingPdfDoc, setViewingPdfDoc] = useState<ControlledDocument | null>(null);
+  const [activePdfUrl, setActivePdfUrl] = useState<string | null>(null);
+  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
+  const [pdfViewerTab, setPdfViewerTab] = useState<'PDF_VIEW' | 'CONTROL_SHEET'>('PDF_VIEW');
+
+  // Promote Working Document Modal State
+  const [promotingDoc, setPromotingDoc] = useState<WorkingDocument | null>(null);
+  const [approverName, setApproverName] = useState('Sarah Jenkins (QA VP)');
+  const [approvalNotes, setApprovalNotes] = useState('Approved for production release per ISO 9001:2015 Clause 7.5.');
+  const [promotionPdfFile, setPromotionPdfFile] = useState<File | null>(null);
+  const [isPromoting, setIsPromoting] = useState(false);
+
+  // Check-In Vault Item Modal State
+  const [checkingInVaultItem, setCheckingInVaultItem] = useState<SourceVaultItem | null>(null);
+  const [checkInRevisedFile, setCheckInRevisedFile] = useState<File | null>(null);
+  const [checkInNewRev, setCheckInNewRev] = useState('Rev B');
+  const [checkInChangeSummary, setCheckInChangeSummary] = useState('');
+  const [isProcessingCheckIn, setIsProcessingCheckIn] = useState(false);
+
+  // Direct Deposit Vault Item Modal State
+  const [depositDocNumber, setDepositDocNumber] = useState('');
+  const [depositTitle, setDepositTitle] = useState('');
+  const [depositRev, setDepositRev] = useState('Rev A');
+  const [depositFile, setDepositFile] = useState<File | null>(null);
+  const [depositNotes, setDepositNotes] = useState('');
+  const [isDepositing, setIsDepositing] = useState(false);
+
+  // File Input References for Direct Button Clicks
+  const workingSourceFileInputRef = useRef<HTMLInputElement>(null);
+  const workingDraftPdfInputRef = useRef<HTMLInputElement>(null);
+  const promotionPdfInputRef = useRef<HTMLInputElement>(null);
+  const checkInFileInputRef = useRef<HTMLInputElement>(null);
+  const depositFileInputRef = useRef<HTMLInputElement>(null);
+  const directPdfInputRef = useRef<HTMLInputElement>(null);
+  const directSourceInputRef = useRef<HTMLInputElement>(null);
+  const quickDropFileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingOverWorkingDocs, setIsDraggingOverWorkingDocs] = useState(false);
+  const [isDraggingInModal, setIsDraggingInModal] = useState(false);
+
+  // Persistent Tier 2 & Tier 3 local state
+  const [vaultItems, setVaultItems] = useState<SourceVaultItem[]>(() => loadStoredVault());
+  const [workingDocs, setWorkingDocs] = useState<WorkingDocument[]>(() => loadStoredWorking());
+
+  // Save changes to persistent storage
+  useEffect(() => {
+    try {
+      localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(vaultItems));
+    } catch (e) {
+      console.warn('Failed to save vault items to localStorage:', e);
+    }
+  }, [vaultItems]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(WORKING_STORAGE_KEY, JSON.stringify(workingDocs));
+    } catch (e) {
+      console.warn('Failed to save working docs to localStorage:', e);
+    }
+  }, [workingDocs]);
+
+  // Combined Repository Catalog (Tier 1 documents + Tier 2 vault items + Standard Enterprise Baselines)
+  const repositoryCatalog = useMemo(() => {
+    const items: Array<{
+      id: string;
+      doc_number: string;
+      title: string;
+      category: DocumentCategory;
+      department: string;
+      current_revision: string;
+      source_file_name?: string;
+      has_vault_master: boolean;
+      is_standard_baseline?: boolean;
+    }> = [];
+
+    // 1. From Controlled Documents
+    documents.forEach((d) => {
+      const vaultMatch = vaultItems.find((v) => v.doc_number === d.doc_number);
+      items.push({
+        id: d.id,
+        doc_number: d.doc_number,
+        title: d.title,
+        category: d.category,
+        department: d.department,
+        current_revision: d.current_revision,
+        source_file_name: vaultMatch?.file_name || d.source_file_name || undefined,
+        has_vault_master: !!vaultMatch,
+      });
+    });
+
+    // 2. From Vault Items if not in documents
+    vaultItems.forEach((v) => {
+      if (!items.some((i) => i.doc_number === v.doc_number)) {
+        items.push({
+          id: v.id,
+          doc_number: v.doc_number,
+          title: v.title,
+          category: 'SOP',
+          department: 'Quality Assurance',
+          current_revision: v.revision,
+          source_file_name: v.file_name,
+          has_vault_master: true,
+        });
+      }
+    });
+
+    // 3. Enterprise Standard Procedure Baselines for initial selection & testing
+    const STANDARD_BASELINES = [
+      {
+        id: 'base-qms-001',
+        doc_number: 'SOP-QMS-001',
+        title: 'ISO 9001:2015 Quality Policy & Defect Quarantine SOP',
+        category: 'SOP' as DocumentCategory,
+        department: 'Quality Assurance',
+        current_revision: 'Rev A',
+        source_file_name: 'SOP-QMS-001_Quality_Policy_Master.docx',
+        has_vault_master: false,
+        is_standard_baseline: true,
+      },
+      {
+        id: 'base-qua-010',
+        doc_number: 'SOP-QUA-010',
+        title: 'Five-Piece First Article Inspection & Blueprint Sign-Off',
+        category: 'SOP' as DocumentCategory,
+        department: 'Quality Assurance',
+        current_revision: 'Rev A',
+        source_file_name: 'SOP-QUA-010_FAI_Signoff_Master.docx',
+        has_vault_master: false,
+        is_standard_baseline: true,
+      },
+      {
+        id: 'base-mch-022',
+        doc_number: 'WI-MCH-022',
+        title: 'First-Piece Quality Metrology & Optical Comparator Protocol',
+        category: 'Work Instruction' as DocumentCategory,
+        department: 'Manufacturing',
+        current_revision: 'Rev A',
+        source_file_name: 'WI-MCH-022_Optical_Comparator.xlsx',
+        has_vault_master: false,
+        is_standard_baseline: true,
+      },
+      {
+        id: 'base-saf-001',
+        doc_number: 'SOP-SAF-001',
+        title: 'Lockout/Tagout (LOTO) & Electrical Zero Energy State Protocol',
+        category: 'SOP' as DocumentCategory,
+        department: 'Manufacturing',
+        current_revision: 'Rev A',
+        source_file_name: 'SOP-SAF-001_LOTO_Procedure.docx',
+        has_vault_master: false,
+        is_standard_baseline: true,
+      },
+      {
+        id: 'base-form-fai',
+        doc_number: 'FORM-APQP-004',
+        title: 'AIAG 4th Edition First Article Inspection Balloon Report',
+        category: 'Form/Template' as DocumentCategory,
+        department: 'Engineering',
+        current_revision: 'Rev 01',
+        source_file_name: 'FORM-APQP-004_FAI_Report.xlsx',
+        has_vault_master: false,
+        is_standard_baseline: true,
+      },
+    ];
+
+    STANDARD_BASELINES.forEach((b) => {
+      if (!items.some((i) => i.doc_number === b.doc_number)) {
+        items.push(b);
+      }
+    });
+
+    return items;
+  }, [documents, vaultItems]);
+
+  // Working Document Modal State (Select from Repository vs Create New)
+  const [workingDocMode, setWorkingDocMode] = useState<'SELECT_REPO' | 'NEW_DOC'>('SELECT_REPO');
+  const [selectedRepoDocId, setSelectedRepoDocId] = useState<string>('');
+  const [useVaultBaseline, setUseVaultBaseline] = useState<boolean>(true);
+
   const [newWorkingDoc, setNewWorkingDoc] = useState<Partial<WorkingDocument>>({
     doc_number: '',
     title: '',
     target_revision: 'Rev A',
     category: 'SOP',
     department: 'Quality Assurance',
-    author: '',
-    source_file_name: '',
+    author: currentAuthorName,
     change_summary: '',
   });
+  const [workingDocSourceFile, setWorkingDocSourceFile] = useState<File | null>(null);
+  const [workingDocDraftPdfFile, setWorkingDocDraftPdfFile] = useState<File | null>(null);
+  const [isCreatingDraft, setIsCreatingDraft] = useState(false);
+
+  // Direct Controlled PDF Form State
+  const [directPdfFile, setDirectPdfFile] = useState<File | null>(null);
+  const [directSourceFile, setDirectSourceFile] = useState<File | null>(null);
+  const [isRegisteringDirectPdf, setIsRegisteringDirectPdf] = useState(false);
+
+  // Handle selection from repository catalog
+  const handleSelectRepositoryDoc = (repoId: string) => {
+    setSelectedRepoDocId(repoId);
+    const found = repositoryCatalog.find((r) => r.id === repoId);
+    if (found) {
+      // Calculate next revision
+      let nextRev = 'Rev B';
+      if (found.current_revision.startsWith('Rev ')) {
+        const letter = found.current_revision.replace('Rev ', '').trim();
+        if (letter.length === 1 && letter >= 'A' && letter < 'Z') {
+          nextRev = `Rev ${String.fromCharCode(letter.charCodeAt(0) + 1)}`;
+        } else {
+          nextRev = `${found.current_revision}-Rev`;
+        }
+      } else if (!isNaN(Number(found.current_revision))) {
+        nextRev = String(Number(found.current_revision) + 1).padStart(2, '0');
+      }
+
+      setNewWorkingDoc({
+        doc_number: found.doc_number,
+        title: found.title,
+        category: found.category,
+        department: found.department,
+        target_revision: nextRev,
+        author: currentAuthorName,
+        source_file_name: found.source_file_name || `${found.doc_number}_Draft.docx`,
+        source_file_type: found.source_file_name?.split('.').pop() || 'docx',
+        change_summary: `Revision ${nextRev} initiated from ${found.current_revision}.`,
+      });
+
+      setUseVaultBaseline(found.has_vault_master);
+      setWorkingDocSourceFile(null);
+    }
+  };
+
+  // Open "Start Working Draft" modal and auto-select first repository item if none chosen
+  const handleOpenWorkingDraftModal = () => {
+    if (repositoryCatalog.length > 0 && !selectedRepoDocId) {
+      handleSelectRepositoryDoc(repositoryCatalog[0].id);
+    }
+    setIsAddWorkingDocModalOpen(true);
+  };
+
+  const handleSwitchToNewDocMode = () => {
+    setWorkingDocMode('NEW_DOC');
+    setSelectedRepoDocId('');
+    setNewWorkingDoc({
+      doc_number: '',
+      title: '',
+      target_revision: 'Rev A',
+      category: 'SOP',
+      department: 'Quality Assurance',
+      author: currentAuthorName,
+      change_summary: '',
+    });
+    setWorkingDocSourceFile(null);
+    setWorkingDocDraftPdfFile(null);
+  };
+
+  const handleSwitchToSelectRepoMode = () => {
+    setWorkingDocMode('SELECT_REPO');
+    if (repositoryCatalog.length > 0) {
+      handleSelectRepositoryDoc(selectedRepoDocId || repositoryCatalog[0].id);
+    }
+  };
+
+  // Intelligent filename parser for drag-and-drop document intake
+  const parseDocumentFromFilename = (fileName: string) => {
+    const baseName = fileName.replace(/\.[^/.]+$/, '');
+    
+    // Pattern match standard IDs: e.g. SOP-QMS-001, WI-MCH-022, FORM-APQP-004
+    const prefixMatch = baseName.match(/([A-Z]{2,5}[-_][A-Z0-9]+[-_][0-9]{2,4})/i);
+    let docNumber = prefixMatch ? prefixMatch[1].replace(/_/g, '-').toUpperCase() : '';
+
+    // Revision match: e.g. Rev_A, Rev-02, Revision-B
+    const revMatch = baseName.match(/[-_]?(Rev|Revision)[-_]?([A-Z0-9]+)/i);
+    let revision = revMatch ? `Rev ${revMatch[2].toUpperCase()}` : 'Rev A';
+
+    // Category inference
+    let category: DocumentCategory = 'SOP';
+    const upper = baseName.toUpperCase();
+    if (upper.startsWith('WI') || upper.includes('WORK_INSTRUCTION') || upper.includes('WORK INSTRUCTION')) {
+      category = 'Work Instruction';
+    } else if (upper.startsWith('FORM') || upper.includes('TEMPLATE') || upper.includes('REPORT')) {
+      category = 'Form/Template';
+    } else if (upper.includes('INSPECTION') || upper.includes('FAI') || upper.includes('METROLOGY')) {
+      category = 'Inspection Procedure';
+    } else if (upper.includes('MANUAL') || upper.includes('POLICY')) {
+      category = 'Quality Manual';
+    }
+
+    // Cleaned Title
+    let cleanedTitle = baseName;
+    if (docNumber) {
+      cleanedTitle = cleanedTitle.replace(new RegExp(docNumber.replace('-', '[-_]'), 'i'), '');
+    }
+    if (revMatch) {
+      cleanedTitle = cleanedTitle.replace(new RegExp(`[-_]?${revMatch[0]}`, 'i'), '');
+    }
+    cleanedTitle = cleanedTitle.replace(/[-_]+/g, ' ').trim();
+    if (!cleanedTitle) {
+      cleanedTitle = baseName.replace(/[-_]+/g, ' ');
+    }
+
+    if (!docNumber) {
+      const letters = baseName.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'DOC';
+      docNumber = `SOP-${letters}-${Math.floor(100 + Math.random() * 900)}`;
+    }
+
+    return { docNumber, revision, title: cleanedTitle, category };
+  };
+
+  // Process a dropped or browsed native document file
+  const handleProcessIntakeFile = (file: File) => {
+    const parsed = parseDocumentFromFilename(file.name);
+    
+    // Check if this matches an existing procedure in the catalog
+    const repoMatch = repositoryCatalog.find(
+      (r) => r.doc_number.toLowerCase() === parsed.docNumber.toLowerCase()
+    );
+
+    if (repoMatch) {
+      setWorkingDocMode('SELECT_REPO');
+      handleSelectRepositoryDoc(repoMatch.id);
+      setWorkingDocSourceFile(file);
+      setUseVaultBaseline(false);
+    } else {
+      setWorkingDocMode('NEW_DOC');
+      setSelectedRepoDocId('');
+      setNewWorkingDoc({
+        doc_number: parsed.docNumber,
+        title: parsed.title,
+        target_revision: parsed.revision,
+        category: parsed.category,
+        department: 'Quality Assurance',
+        author: currentAuthorName,
+        change_summary: `Initial working draft created from dropped file (${file.name}).`,
+        source_file_name: file.name,
+        source_file_type: file.name.split('.').pop() || 'docx',
+        source_file_size_bytes: file.size,
+      });
+      setWorkingDocSourceFile(file);
+    }
+
+    setIsAddWorkingDocModalOpen(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOverWorkingDocs(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDraggingOverWorkingDocs(false);
+  };
+
+  const handleDropOnWorkingDocs = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOverWorkingDocs(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      handleProcessIntakeFile(file);
+    }
+  };
+
+  // Load preview PDF whenever viewingPdfDoc changes
+  useEffect(() => {
+    if (viewingPdfDoc) {
+      setIsLoadingPdf(true);
+      getPdfViewUrl(viewingPdfDoc.storage_path, viewingPdfDoc.pdf_file_url)
+        .then((url) => {
+          setActivePdfUrl(url);
+          setIsLoadingPdf(false);
+        })
+        .catch(() => {
+          setActivePdfUrl(viewingPdfDoc.pdf_file_url || null);
+          setIsLoadingPdf(false);
+        });
+    } else {
+      setActivePdfUrl(null);
+    }
+  }, [viewingPdfDoc]);
 
   // Filter logic for Tier 1 Controlled Documents
   const filteredDocs = documents.filter((doc) => {
@@ -101,92 +509,407 @@ export const QmsDocumentControl: React.FC<Props> = ({
     return true;
   });
 
+  // =========================================================================
+  // HANDLERS
+  // =========================================================================
+
+  // Create new working document draft with native source file
+  const handleCreateWorkingDoc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWorkingDoc.doc_number || !newWorkingDoc.title) return;
+
+    setIsCreatingDraft(true);
+    try {
+      const docNum = newWorkingDoc.doc_number;
+      const targetRev = newWorkingDoc.target_revision || 'Rev A';
+
+      let sourceFileName = newWorkingDoc.source_file_name || `${docNum}_Master.docx`;
+      let sourceFileType = sourceFileName.split('.').pop() || 'docx';
+      let sourceFileSize = 0;
+      let sourceStoragePath: string | null = null;
+      let sourceFileUrl: string | null = null;
+
+      // 1. Upload native source file if selected from computer
+      if (workingDocSourceFile) {
+        sourceFileName = workingDocSourceFile.name;
+        sourceFileType = workingDocSourceFile.name.split('.').pop() || 'docx';
+        sourceFileSize = workingDocSourceFile.size;
+        const uploadRes = await uploadWorkingFile(docNum, targetRev, workingDocSourceFile);
+        sourceStoragePath = uploadRes.path;
+        sourceFileUrl = uploadRes.url;
+      } else if (useVaultBaseline && selectedRepoDocId) {
+        // Find existing vault master item to link
+        const vaultMatch = vaultItems.find((v) => v.doc_number === docNum);
+        if (vaultMatch) {
+          sourceFileName = vaultMatch.file_name;
+          sourceFileType = vaultMatch.file_type;
+          sourceFileSize = vaultMatch.file_size_bytes;
+          sourceStoragePath = vaultMatch.storage_path || null;
+          sourceFileUrl = vaultMatch.file_url || null;
+        }
+      }
+
+      // 2. Upload draft PDF if selected
+      let draftPdfName: string | null = null;
+      let draftPdfPath: string | null = null;
+      let draftPdfUrl: string | null = null;
+      let draftPdfSize: number | undefined = undefined;
+
+      if (workingDocDraftPdfFile) {
+        draftPdfName = workingDocDraftPdfFile.name;
+        draftPdfSize = workingDocDraftPdfFile.size;
+        const pdfRes = await uploadWorkingFile(docNum, targetRev, workingDocDraftPdfFile);
+        draftPdfPath = pdfRes.path;
+        draftPdfUrl = pdfRes.url;
+      }
+
+      const doc: WorkingDocument = {
+        id: `work-${Date.now()}`,
+        doc_number: docNum,
+        title: newWorkingDoc.title || '',
+        target_revision: targetRev,
+        category: newWorkingDoc.category || 'SOP',
+        department: newWorkingDoc.department || 'Quality Assurance',
+        author: newWorkingDoc.author || currentAuthorName,
+        stage: 'DRAFT',
+        source_file_name: sourceFileName,
+        source_file_type: sourceFileType,
+        source_file_size_bytes: sourceFileSize,
+        source_file_url: sourceFileUrl,
+        source_storage_path: sourceStoragePath,
+        draft_pdf_name: draftPdfName,
+        draft_pdf_storage_path: draftPdfPath,
+        draft_pdf_url: draftPdfUrl,
+        draft_pdf_size_bytes: draftPdfSize,
+        change_summary: newWorkingDoc.change_summary || 'Working draft created in repository.',
+        created_at: new Date().toISOString().slice(0, 10),
+        updated_at: new Date().toISOString().slice(0, 10),
+      };
+
+      setWorkingDocs((prev) => [doc, ...prev]);
+      setIsAddWorkingDocModalOpen(false);
+      setWorkingDocSourceFile(null);
+      setWorkingDocDraftPdfFile(null);
+      setActiveTier('WORKING_DOCS');
+    } catch (err) {
+      console.error('Error creating working document:', err);
+      alert('Failed to upload draft source file. Please try again.');
+    } finally {
+      setIsCreatingDraft(false);
+    }
+  };
+
   // Promotion handler (Tier 3 Working Doc -> Tier 1 Controlled PDF + Tier 2 Vault)
   const handlePromoteWorkingDoc = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!promotingDoc) return;
 
-    // 1. Add to Controlled Documents
-    await onAddDocument({
-      doc_number: promotingDoc.doc_number,
-      title: promotingDoc.title,
-      category: promotingDoc.category,
-      department: promotingDoc.department,
-      current_revision: promotingDoc.target_revision,
-      status: 'APPROVED',
-      owner: promotingDoc.author,
-      effective_date: new Date().toISOString().slice(0, 10),
-      next_review_date: new Date(Date.now() + 86400000 * 365).toISOString().slice(0, 10),
-      description: promotingDoc.change_summary,
-      pdf_file_name: `${promotingDoc.doc_number}_${promotingDoc.target_revision.replace(/\s+/g, '')}_CONTROLLED.pdf`,
-      approved_by: approverName,
-      approved_at: new Date().toISOString().slice(0, 10),
-    });
+    setIsPromoting(true);
+    try {
+      const docNum = promotingDoc.doc_number;
+      const targetRev = promotingDoc.target_revision;
 
-    // 2. Deposit master source file into Tier 2 Source Vault
-    const vaultEntry: SourceVaultItem = {
-      id: `vault-${Date.now()}`,
-      document_id: promotingDoc.id,
-      doc_number: promotingDoc.doc_number,
-      title: promotingDoc.title,
-      revision: promotingDoc.target_revision,
-      file_name: promotingDoc.source_file_name || `${promotingDoc.doc_number}_Master.docx`,
-      file_type: promotingDoc.source_file_type || 'docx',
-      file_size_bytes: 2150000,
-      uploaded_by: promotingDoc.author,
-      uploaded_at: new Date().toISOString().slice(0, 10),
-      is_checked_out: false,
-      notes: `Archived during promotion to Controlled PDF by ${approverName}.`,
-    };
-    setVaultItems(prev => [vaultEntry, ...prev]);
+      // 1. Determine or upload final Master PDF
+      let finalPdfName = promotingDoc.draft_pdf_name || `${docNum}_${targetRev.replace(/\s+/g, '')}_CONTROLLED.pdf`;
+      let finalPdfUrl = promotingDoc.draft_pdf_url || null;
+      let finalPdfPath = promotingDoc.draft_pdf_storage_path || null;
+      let finalPdfSize = promotingDoc.draft_pdf_size_bytes || 250000;
 
-    // 3. Remove from Working Documents
-    setWorkingDocs(prev => prev.filter(w => w.id !== promotingDoc.id));
-    setPromotingDoc(null);
-  };
-
-  // Check out source file from vault
-  const handleToggleVaultCheckout = (vaultId: string) => {
-    setVaultItems(prev => prev.map(v => {
-      if (v.id === vaultId) {
-        const nextState = !v.is_checked_out;
-        return {
-          ...v,
-          is_checked_out: nextState,
-          checked_out_by: nextState ? 'Current User (Author)' : null,
-        };
+      if (promotionPdfFile) {
+        finalPdfName = promotionPdfFile.name;
+        finalPdfSize = promotionPdfFile.size;
+        const uploadPdfRes = await uploadControlledPdfFile(docNum, targetRev, promotionPdfFile);
+        finalPdfPath = uploadPdfRes.path;
+        finalPdfUrl = uploadPdfRes.url;
       }
-      return v;
-    }));
+
+      // 2. Deposit master source file into Tier 2 Source Vault
+      const vaultId = `vault-${Date.now()}`;
+      const vaultEntry: SourceVaultItem = {
+        id: vaultId,
+        document_id: promotingDoc.id,
+        doc_number: docNum,
+        title: promotingDoc.title,
+        revision: targetRev,
+        file_name: promotingDoc.source_file_name || `${docNum}_Master.docx`,
+        file_type: promotingDoc.source_file_type || 'docx',
+        file_size_bytes: promotingDoc.source_file_size_bytes || 1500000,
+        file_url: promotingDoc.source_file_url || null,
+        storage_path: promotingDoc.source_storage_path || null,
+        uploaded_by: promotingDoc.author,
+        uploaded_at: new Date().toISOString().slice(0, 10),
+        is_checked_out: false,
+        notes: `Master native source vaulted upon promotion by ${approverName}. Note: ${approvalNotes}`,
+      };
+
+      setVaultItems((prev) => [vaultEntry, ...prev]);
+
+      // 3. Add to Controlled Documents (Tier 1)
+      await onAddDocument({
+        doc_number: docNum,
+        title: promotingDoc.title,
+        category: promotingDoc.category,
+        department: promotingDoc.department,
+        current_revision: targetRev,
+        status: 'APPROVED',
+        owner: promotingDoc.author,
+        effective_date: new Date().toISOString().slice(0, 10),
+        next_review_date: new Date(Date.now() + 86400000 * 365).toISOString().slice(0, 10),
+        description: promotingDoc.change_summary,
+        pdf_file_name: finalPdfName,
+        pdf_file_url: finalPdfUrl,
+        pdf_file_size_bytes: finalPdfSize,
+        storage_path: finalPdfPath,
+        source_vault_id: vaultId,
+        source_file_name: vaultEntry.file_name,
+        source_file_type: vaultEntry.file_type,
+        approved_by: approverName,
+        approved_at: new Date().toISOString().slice(0, 10),
+      });
+
+      // 4. Remove from Working Documents
+      setWorkingDocs((prev) => prev.filter((w) => w.id !== promotingDoc.id));
+      setPromotingDoc(null);
+      setPromotionPdfFile(null);
+      setActiveTier('CONTROLLED_PDFS');
+    } catch (err) {
+      console.error('Promotion error:', err);
+      alert('Failed to promote document to controlled register.');
+    } finally {
+      setIsPromoting(false);
+    }
   };
 
-  // Create new working document draft
-  const handleCreateWorkingDoc = (e: React.FormEvent) => {
+  // Check-out source file from vault (locks file and downloads the master native file)
+  const handleToggleVaultCheckout = async (item: SourceVaultItem) => {
+    if (!item.is_checked_out) {
+      // Check-out: lock file and download directly to engineer's machine
+      setVaultItems((prev) =>
+        prev.map((v) => {
+          if (v.id === item.id) {
+            return {
+              ...v,
+              is_checked_out: true,
+              checked_out_by: currentAuthorName,
+            };
+          }
+          return v;
+        })
+      );
+
+      // Immediately download the master native file for local editing in Word/Excel
+      await downloadDocumentFile(item.storage_path || '', item.file_name, item.file_url);
+    } else {
+      // Prompt for check-in modal to upload updated file and record revision change summary
+      setCheckingInVaultItem(item);
+      setCheckInNewRev(item.revision === 'Rev A' ? 'Rev B' : `${item.revision}-Next`);
+      setCheckInChangeSummary('');
+      setCheckInRevisedFile(null);
+    }
+  };
+
+  // Submit check-in modal
+  const handleCheckInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWorkingDoc.doc_number || !newWorkingDoc.title) return;
-    const doc: WorkingDocument = {
-      id: `work-${Date.now()}`,
-      doc_number: newWorkingDoc.doc_number || 'SOP-000',
-      title: newWorkingDoc.title || '',
-      target_revision: newWorkingDoc.target_revision || 'Rev A',
-      category: newWorkingDoc.category || 'SOP',
-      department: newWorkingDoc.department || 'Quality Assurance',
-      author: newWorkingDoc.author || 'Author',
-      stage: 'DRAFT',
-      source_file_name: newWorkingDoc.source_file_name || `${newWorkingDoc.doc_number}_Draft.docx`,
-      source_file_type: 'docx',
-      change_summary: newWorkingDoc.change_summary || '',
-      created_at: new Date().toISOString().slice(0, 10),
-      updated_at: new Date().toISOString().slice(0, 10),
-    };
-    setWorkingDocs(prev => [doc, ...prev]);
-    setIsAddWorkingDocModalOpen(false);
+    if (!checkingInVaultItem) return;
+
+    setIsProcessingCheckIn(true);
+    try {
+      const item = checkingInVaultItem;
+      let newFileName = item.file_name;
+      let newFilePath = item.storage_path;
+      let newFileUrl = item.file_url;
+      let newFileSize = item.file_size_bytes;
+
+      if (checkInRevisedFile) {
+        newFileName = checkInRevisedFile.name;
+        newFileSize = checkInRevisedFile.size;
+        const uploadRes = await uploadWorkingFile(item.doc_number, checkInNewRev, checkInRevisedFile);
+        newFilePath = uploadRes.path;
+        newFileUrl = uploadRes.url;
+      }
+
+      // 1. Release check-out lock in vault
+      setVaultItems((prev) =>
+        prev.map((v) => {
+          if (v.id === item.id) {
+            return {
+              ...v,
+              is_checked_out: false,
+              checked_out_by: null,
+              notes: `Checked in by ${currentAuthorName}: ${checkInChangeSummary}`,
+            };
+          }
+          return v;
+        })
+      );
+
+      // 2. Automatically spawn a Working Document draft in Tier 3
+      const newDraft: WorkingDocument = {
+        id: `work-${Date.now()}`,
+        doc_number: item.doc_number,
+        title: item.title,
+        target_revision: checkInNewRev,
+        category: 'SOP',
+        department: 'Quality Assurance',
+        author: currentAuthorName,
+        stage: 'DRAFT',
+        source_file_name: newFileName,
+        source_file_type: newFileName.split('.').pop() || 'docx',
+        source_file_size_bytes: newFileSize,
+        source_file_url: newFileUrl,
+        source_storage_path: newFilePath,
+        source_vault_ref: item.id,
+        change_summary: checkInChangeSummary || 'Engineering revision checked in from vault.',
+        created_at: new Date().toISOString().slice(0, 10),
+        updated_at: new Date().toISOString().slice(0, 10),
+      };
+
+      setWorkingDocs((prev) => [newDraft, ...prev]);
+      setCheckingInVaultItem(null);
+      setCheckInRevisedFile(null);
+      setActiveTier('WORKING_DOCS');
+    } catch (err) {
+      console.error('Check-in error:', err);
+      alert('Failed to check in file.');
+    } finally {
+      setIsProcessingCheckIn(false);
+    }
+  };
+
+  // Direct deposit into Tier 2 Source Vault
+  const handleDepositVaultSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!depositDocNumber || !depositTitle || !depositFile) return;
+
+    setIsDepositing(true);
+    try {
+      const uploadRes = await uploadVaultFile(depositDocNumber, depositRev, depositFile);
+
+      const vaultEntry: SourceVaultItem = {
+        id: `vault-${Date.now()}`,
+        document_id: `doc-${depositDocNumber}`,
+        doc_number: depositDocNumber,
+        title: depositTitle,
+        revision: depositRev,
+        file_name: depositFile.name,
+        file_type: depositFile.name.split('.').pop() || 'docx',
+        file_size_bytes: depositFile.size,
+        file_url: uploadRes.url,
+        storage_path: uploadRes.path,
+        uploaded_by: currentAuthorName,
+        uploaded_at: new Date().toISOString().slice(0, 10),
+        is_checked_out: false,
+        notes: depositNotes || 'Direct vault deposit.',
+      };
+
+      setVaultItems((prev) => [vaultEntry, ...prev]);
+      setIsDepositVaultModalOpen(false);
+      setDepositFile(null);
+      setDepositDocNumber('');
+      setDepositTitle('');
+    } catch (err) {
+      console.error('Deposit error:', err);
+      alert('Failed to deposit file into vault.');
+    } finally {
+      setIsDepositing(false);
+    }
+  };
+
+  // Direct Controlled PDF Registration (Tier 1)
+  const handleDirectPdfSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formEl = e.currentTarget as HTMLFormElement;
+    const formData = new FormData(formEl);
+
+    setIsRegisteringDirectPdf(true);
+    try {
+      const docNum = formData.get('doc_number') as string;
+      const rev = formData.get('current_revision') as string;
+      const title = formData.get('title') as string;
+
+      let pdfName = `${docNum}_CONTROLLED.pdf`;
+      let pdfUrl: string | null = null;
+      let pdfPath: string | null = null;
+      let pdfSize = 250000;
+
+      if (directPdfFile) {
+        pdfName = directPdfFile.name;
+        pdfSize = directPdfFile.size;
+        const uploadRes = await uploadControlledPdfFile(docNum, rev, directPdfFile);
+        pdfPath = uploadRes.path;
+        pdfUrl = uploadRes.url;
+      }
+
+      // Optional native source file deposit into vault simultaneously
+      let sourceVaultId: string | null = null;
+      let sourceFileName: string | null = null;
+      let sourceFileType: string | null = null;
+
+      if (directSourceFile) {
+        const sourceRes = await uploadVaultFile(docNum, rev, directSourceFile);
+        sourceVaultId = `vault-${Date.now()}`;
+        sourceFileName = directSourceFile.name;
+        sourceFileType = directSourceFile.name.split('.').pop() || 'docx';
+
+        const vaultEntry: SourceVaultItem = {
+          id: sourceVaultId,
+          document_id: `doc-${docNum}`,
+          doc_number: docNum,
+          title,
+          revision: rev,
+          file_name: directSourceFile.name,
+          file_type: sourceFileType,
+          file_size_bytes: directSourceFile.size,
+          file_url: sourceRes.url,
+          storage_path: sourceRes.path,
+          uploaded_by: (formData.get('owner') as string) || currentAuthorName,
+          uploaded_at: new Date().toISOString().slice(0, 10),
+          is_checked_out: false,
+          notes: 'Master source deposited during direct controlled PDF registration.',
+        };
+        setVaultItems((prev) => [vaultEntry, ...prev]);
+      }
+
+      await onAddDocument({
+        doc_number: docNum,
+        title,
+        category: formData.get('category') as DocumentCategory,
+        department: formData.get('department') as string,
+        current_revision: rev,
+        status: 'APPROVED',
+        owner: formData.get('owner') as string,
+        effective_date: formData.get('effective_date') as string,
+        next_review_date: formData.get('next_review_date') as string,
+        description: formData.get('description') as string,
+        pdf_file_name: pdfName,
+        pdf_file_url: pdfUrl,
+        pdf_file_size_bytes: pdfSize,
+        storage_path: pdfPath,
+        source_vault_id: sourceVaultId,
+        source_file_name: sourceFileName,
+        source_file_type: sourceFileType,
+        approved_by: formData.get('owner') as string,
+        approved_at: new Date().toISOString().slice(0, 10),
+      });
+
+      setIsAddDocModalOpen(false);
+      setDirectPdfFile(null);
+      setDirectSourceFile(null);
+    } catch (err) {
+      console.error('Direct register error:', err);
+      alert('Failed to register controlled PDF.');
+    } finally {
+      setIsRegisteringDirectPdf(false);
+    }
   };
 
   const getFileTypeIcon = (type: string) => {
-    if (type.includes('doc')) return <FileText className="w-4 h-4 text-blue-400" />;
-    if (type.includes('xls')) return <FileSpreadsheet className="w-4 h-4 text-emerald-400" />;
-    if (type.includes('dwg') || type.includes('dxf')) return <FileCode className="w-4 h-4 text-purple-400" />;
+    const t = type.toLowerCase();
+    if (t.includes('doc')) return <FileText className="w-4 h-4 text-blue-400" />;
+    if (t.includes('xls') || t.includes('csv')) return <FileSpreadsheet className="w-4 h-4 text-emerald-400" />;
+    if (t.includes('dwg') || t.includes('dxf')) return <FileCode className="w-4 h-4 text-purple-400" />;
+    if (t.includes('pdf')) return <FileCheck className="w-4 h-4 text-red-400" />;
     return <File className="w-4 h-4 text-slate-400" />;
   };
 
@@ -212,14 +935,34 @@ export const QmsDocumentControl: React.FC<Props> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {activeTier === 'WORKING_DOCS' ? (
+          {activeTier === 'WORKING_DOCS' && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => quickDropFileInputRef.current?.click()}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shadow"
+              >
+                <Upload className="w-4 h-4 text-purple-400" /> Drop / Upload Document
+              </button>
+              <button
+                onClick={handleOpenWorkingDraftModal}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" /> Start Working Draft
+              </button>
+            </div>
+          )}
+
+          {activeTier === 'SOURCE_VAULT' && (
             <button
-              onClick={() => setIsAddWorkingDocModalOpen(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-500/20 transition-all flex items-center gap-1.5"
+              onClick={() => setIsDepositVaultModalOpen(true)}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-amber-500/20 transition-all flex items-center gap-1.5"
             >
-              <Plus className="w-4 h-4" /> Start Working Draft
+              <Upload className="w-4 h-4" /> Deposit Native Master
             </button>
-          ) : (
+          )}
+
+          {activeTier === 'CONTROLLED_PDFS' && (
             <button
               onClick={() => setIsAddDocModalOpen(true)}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-500/20 transition-all flex items-center gap-1.5"
@@ -244,7 +987,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
             <FileText className="w-4 h-4 text-emerald-400" />
             Tier 1: Controlled Documents (Approved PDFs Only)
             <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-950 font-mono font-bold text-emerald-400">
-              {documents.filter(d => d.status === 'APPROVED').length}
+              {documents.filter((d) => d.status === 'APPROVED').length}
             </span>
           </button>
 
@@ -257,7 +1000,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
             }`}
           >
             <Lock className="w-4 h-4 text-amber-400" />
-            Tier 2: Source File Vault (Native Repository)
+            Tier 2: Source File Vault (Native Masters Repository)
             <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-950 font-mono font-bold text-amber-400">
               {vaultItems.length}
             </span>
@@ -335,7 +1078,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
                     <th className="py-3 px-4">Category / Dept</th>
                     <th className="py-3 px-4">Approved Revision</th>
                     <th className="py-3 px-4">Effective / Review Date</th>
-                    <th className="py-3 px-4">Official Control Stamp</th>
+                    <th className="py-3 px-4">Master PDF Asset</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -343,12 +1086,12 @@ export const QmsDocumentControl: React.FC<Props> = ({
                   {filteredDocs.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="text-center py-8 text-slate-500 font-mono">
-                        No approved controlled documents matching criteria.
+                        No approved controlled documents matching criteria. Click &quot;Register Controlled PDF&quot; to add your first master document.
                       </td>
                     </tr>
                   ) : (
                     filteredDocs.map((doc) => {
-                      const vaultMatch = vaultItems.find(v => v.doc_number === doc.doc_number);
+                      const vaultMatch = vaultItems.find((v) => v.doc_number === doc.doc_number);
 
                       return (
                         <tr key={doc.id} className="hover:bg-slate-800/40 transition-colors">
@@ -374,13 +1117,16 @@ export const QmsDocumentControl: React.FC<Props> = ({
                             <div className="text-[10px] text-slate-500">Next Rev: {doc.next_review_date}</div>
                           </td>
                           <td className="py-3.5 px-4">
-                            <div className="border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 rounded text-center w-fit">
-                              <span className="text-[9px] font-mono font-extrabold uppercase text-emerald-300 block tracking-wider">
-                                CONTROLLED PDF
-                              </span>
-                              <span className="text-[9px] text-slate-400 font-mono">
-                                Approved: {doc.owner.split(' ')[0]}
-                              </span>
+                            <div className="flex items-center gap-1.5">
+                              <FileCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                              <div>
+                                <span className="font-mono text-[10px] text-slate-200 block truncate max-w-[150px]">
+                                  {doc.pdf_file_name || `${doc.doc_number}_CONTROLLED.pdf`}
+                                </span>
+                                <span className="text-[9px] text-emerald-400 font-mono block">
+                                  {doc.pdf_file_size_bytes ? `${(doc.pdf_file_size_bytes / 1024).toFixed(0)} KB` : 'Verified PDF Master'}
+                                </span>
+                              </div>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 text-right">
@@ -392,10 +1138,18 @@ export const QmsDocumentControl: React.FC<Props> = ({
                                 <Eye className="w-3.5 h-3.5" /> View PDF
                               </button>
 
+                              <button
+                                onClick={() => downloadDocumentFile(doc.storage_path || '', doc.pdf_file_name || `${doc.doc_number}_CONTROLLED.pdf`, doc.pdf_file_url)}
+                                title="Download controlled master PDF"
+                                className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition-colors"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+
                               {vaultMatch && (
                                 <button
                                   onClick={() => setActiveTier('SOURCE_VAULT')}
-                                  title={`Source Vault File: ${vaultMatch.file_name}`}
+                                  title={`Native Master File in Vault: ${vaultMatch.file_name}`}
                                   className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] flex items-center gap-1 border border-slate-700 transition-colors"
                                 >
                                   <Lock className="w-3 h-3 text-amber-400" /> Vault
@@ -419,7 +1173,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
           ========================================================================= */}
       {activeTier === 'SOURCE_VAULT' && (
         <div className="space-y-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Lock className="w-4 h-4 text-amber-400" />
@@ -429,89 +1183,102 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 Restricted repository for editable Word (.docx), Excel (.xlsx), and CAD (.dwg) source files used to generate controlled PDFs.
               </p>
             </div>
-            <span className="text-xs font-mono font-bold px-2.5 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
-              Access Restricted • Author Check-in / Check-out
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold px-2.5 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                Author Check-in / Check-out Concurrency Locks
+              </span>
+              <button
+                onClick={() => setIsDepositVaultModalOpen(true)}
+                className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" /> Deposit Master File
+              </button>
+            </div>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-xl overflow-hidden">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950 text-slate-400 uppercase font-mono text-[10px] border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Doc # / Target Rev</th>
-                  <th className="py-3 px-4">Native Source File Name</th>
-                  <th className="py-3 px-4">File Type & Size</th>
-                  <th className="py-3 px-4">Vault Status</th>
-                  <th className="py-3 px-4">Last Deposited Date & Author</th>
-                  <th className="py-3 px-4 text-right">Vault Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {vaultItems.length === 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950 text-slate-400 uppercase font-mono text-[10px] border-b border-slate-800">
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500 font-mono">
-                      No native source files currently in vault. Check in editable .docx, .xlsx, or .dwg files here.
-                    </td>
+                    <th className="py-3 px-4">Doc # / Target Rev</th>
+                    <th className="py-3 px-4">Native Source File Name</th>
+                    <th className="py-3 px-4">File Type & Size</th>
+                    <th className="py-3 px-4">Vault Status</th>
+                    <th className="py-3 px-4">Last Deposited Date & Author</th>
+                    <th className="py-3 px-4 text-right">Vault Actions</th>
                   </tr>
-                ) : (
-                  vaultItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3.5 px-4 font-mono font-bold text-white">
-                      <span className="text-amber-400 block">{item.doc_number}</span>
-                      <span className="text-[10px] text-slate-400">{item.revision}</span>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        {getFileTypeIcon(item.file_type)}
-                        <span className="font-mono text-slate-200 font-semibold">{item.file_name}</span>
-                      </div>
-                      {item.notes && <p className="text-[11px] text-slate-400 mt-0.5">{item.notes}</p>}
-                    </td>
-                    <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">
-                      <span className="uppercase text-slate-200 block">{item.file_type} File</span>
-                      <span>{(item.file_size_bytes / (1024 * 1024)).toFixed(2)} MB</span>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      {item.is_checked_out ? (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                          Checked Out ({item.checked_out_by || 'Author'})
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          Locked in Vault (Ready)
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">
-                      <div>{item.uploaded_at}</div>
-                      <div className="text-[10px] text-slate-500">{item.uploaded_by}</div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleToggleVaultCheckout(item.id)}
-                          className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors ${
-                            item.is_checked_out
-                              ? 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                              : 'bg-amber-600 hover:bg-amber-500 text-white'
-                          }`}
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                          {item.is_checked_out ? 'Check-in Source' : 'Check-out Source'}
-                        </button>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {vaultItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-slate-500 font-mono">
+                        No native source files currently in vault. Check in editable .docx, .xlsx, or .dwg files using &quot;Deposit Master File&quot;.
+                      </td>
+                    </tr>
+                  ) : (
+                    vaultItems.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
+                      <td className="py-3.5 px-4 font-mono font-bold text-white">
+                        <span className="text-amber-400 block">{item.doc_number}</span>
+                        <span className="text-[10px] text-slate-400">{item.revision}</span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2">
+                          {getFileTypeIcon(item.file_type)}
+                          <span className="font-mono text-slate-200 font-semibold">{item.file_name}</span>
+                        </div>
+                        {item.notes && <p className="text-[11px] text-slate-400 mt-0.5">{item.notes}</p>}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">
+                        <span className="uppercase text-slate-200 block">{item.file_type} File</span>
+                        <span>{(item.file_size_bytes / (1024 * 1024)).toFixed(2)} MB</span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {item.is_checked_out ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1 w-fit">
+                            <Lock className="w-3 h-3 text-rose-400" />
+                            Checked Out ({item.checked_out_by || 'Author'})
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 w-fit">
+                            <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                            Locked in Vault (Ready)
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">
+                        <div>{item.uploaded_at}</div>
+                        <div className="text-[10px] text-slate-500">{item.uploaded_by}</div>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleToggleVaultCheckout(item)}
+                            className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors ${
+                              item.is_checked_out
+                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                : 'bg-amber-600 hover:bg-amber-500 text-white'
+                            }`}
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            {item.is_checked_out ? 'Check-in Source' : 'Check-out & Download'}
+                          </button>
 
-                        <button
-                          onClick={() => alert(`Downloading master native file: ${item.file_name}`)}
-                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium border border-slate-700 flex items-center gap-1"
-                        >
-                          <Download className="w-3.5 h-3.5" /> Download
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )))}
-              </tbody>
-            </table>
+                          <button
+                            onClick={() => downloadDocumentFile(item.storage_path || '', item.file_name, item.file_url)}
+                            title={`Download native file: ${item.file_name}`}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium border border-slate-700 flex items-center gap-1"
+                          >
+                            <Download className="w-3.5 h-3.5" /> Download
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -521,7 +1288,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
           ========================================================================= */}
       {activeTier === 'WORKING_DOCS' && (
         <div className="space-y-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Clock className="w-4 h-4 text-purple-400" />
@@ -532,74 +1299,172 @@ export const QmsDocumentControl: React.FC<Props> = ({
               </p>
             </div>
             <button
-              onClick={() => setIsAddWorkingDocModalOpen(true)}
+              onClick={handleOpenWorkingDraftModal}
               className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" /> Create Draft
             </button>
           </div>
 
+          {/* Direct Drag & Drop Document Intake Zone */}
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDropOnWorkingDocs}
+            className={`border-2 border-dashed rounded-xl p-6 transition-all text-center relative overflow-hidden ${
+              isDraggingOverWorkingDocs
+                ? 'border-purple-400 bg-purple-950/40 ring-4 ring-purple-500/20 scale-[1.005]'
+                : 'border-slate-700/80 hover:border-purple-500/60 bg-slate-900/60 hover:bg-slate-900/90'
+            }`}
+          >
+            <input
+              ref={quickDropFileInputRef}
+              type="file"
+              accept=".docx,.xlsx,.dwg,.pptx,.pdf"
+              onChange={(e) => {
+                if (e.target.files?.[0]) {
+                  handleProcessIntakeFile(e.target.files[0]);
+                }
+              }}
+              className="hidden"
+            />
+            <div className="flex flex-col items-center justify-center space-y-2.5">
+              <div
+                className={`p-3 rounded-full transition-transform ${
+                  isDraggingOverWorkingDocs
+                    ? 'bg-purple-600 text-white scale-110 shadow-lg shadow-purple-500/30'
+                    : 'bg-purple-500/10 text-purple-400'
+                }`}
+              >
+                <Upload className={`w-6 h-6 ${isDraggingOverWorkingDocs ? 'animate-bounce' : ''}`} />
+              </div>
+
+              <div>
+                <h4 className="text-sm font-bold text-white tracking-wide">
+                  {isDraggingOverWorkingDocs
+                    ? 'Release file to start draft & log into repository...'
+                    : 'Drag & Drop MS Word (.docx) or Excel (.xlsx) Here to Start Working Draft'}
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5 max-w-lg mx-auto">
+                  Drop native procedure files directly into this zone to automatically parse document numbers, initialize change control, and stage in the Tier 3 sandbox.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => quickDropFileInputRef.current?.click()}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5"
+                >
+                  <FolderOpen className="w-4 h-4" /> Browse Files (.docx, .xlsx, .dwg)
+                </button>
+                <span className="text-slate-500 text-xs">or drag and drop a file anywhere into this box</span>
+              </div>
+            </div>
+          </div>
+
           <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-xl overflow-hidden">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950 text-slate-400 uppercase font-mono text-[10px] border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Doc # / Target Rev</th>
-                  <th className="py-3 px-4">Draft Title & Scope</th>
-                  <th className="py-3 px-4">Author / Department</th>
-                  <th className="py-3 px-4">Lifecycle Stage</th>
-                  <th className="py-3 px-4">Change Summary</th>
-                  <th className="py-3 px-4 text-right">Promotion Workflow</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {workingDocs.length === 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950 text-slate-400 uppercase font-mono text-[10px] border-b border-slate-800">
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500 font-mono">
-                      No working documents or drafts in progress.
-                    </td>
+                    <th className="py-3 px-4">Doc # / Target Rev</th>
+                    <th className="py-3 px-4">Draft Title & Scope</th>
+                    <th className="py-3 px-4">Native Working File</th>
+                    <th className="py-3 px-4">Master PDF Status</th>
+                    <th className="py-3 px-4">Author / Department</th>
+                    <th className="py-3 px-4">Change Summary</th>
+                    <th className="py-3 px-4 text-right">Promotion Workflow</th>
                   </tr>
-                ) : (
-                  workingDocs.map((w) => (
-                    <tr key={w.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 px-4 font-mono font-bold text-white">
-                        <span className="text-purple-400 block">{w.doc_number}</span>
-                        <span className="text-[10px] text-slate-400">{w.target_revision}</span>
-                      </td>
-                      <td className="py-3.5 px-4 max-w-[280px]">
-                        <span className="font-semibold text-white block truncate">{w.title}</span>
-                        <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">{w.source_file_name}</span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className="text-slate-200 font-medium block">{w.author}</span>
-                        <span className="text-[10px] text-slate-500">{w.department}</span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          w.stage === 'PENDING_APPROVAL'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : w.stage === 'IN_REVIEW'
-                            ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                            : 'bg-slate-800 text-slate-400'
-                        }`}>
-                          {w.stage}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 max-w-[240px] text-slate-300 text-[11px]">
-                        {w.change_summary}
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <button
-                          onClick={() => setPromotingDoc(w)}
-                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow ml-auto"
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5" /> Promote to Controlled PDF
-                        </button>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {workingDocs.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-10">
+                        <div className="max-w-md mx-auto space-y-2 text-slate-400">
+                          <FileText className="w-8 h-8 text-purple-400/60 mx-auto" />
+                          <div className="font-semibold text-white text-xs">No active working drafts in progress</div>
+                          <p className="text-[11px] text-slate-400">
+                            Drag and drop a Word or Excel document into the dropzone above, or click &quot;Create Draft&quot; to revise an existing procedure from the catalog.
+                          </p>
+                        </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    workingDocs.map((w) => (
+                      <tr key={w.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3.5 px-4 font-mono font-bold text-white">
+                          <span className="text-purple-400 block">{w.doc_number}</span>
+                          <span className="text-[10px] text-slate-400">{w.target_revision}</span>
+                        </td>
+                        <td className="py-3.5 px-4 max-w-[240px]">
+                          <span className="font-semibold text-white block truncate">{w.title}</span>
+                          <span className="text-[10px] text-slate-500 mt-0.5 block">{w.category}</span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-1.5">
+                            {getFileTypeIcon(w.source_file_type || 'docx')}
+                            <div>
+                              <span className="font-mono text-slate-200 block truncate max-w-[140px] text-[11px]">
+                                {w.source_file_name || 'No file attached'}
+                              </span>
+                              {w.source_file_size_bytes ? (
+                                <span className="text-[9px] text-slate-500 font-mono">
+                                  {(w.source_file_size_bytes / 1024).toFixed(0)} KB
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {w.draft_pdf_name ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 w-fit">
+                              <FileCheck className="w-3 h-3 text-emerald-400" />
+                              PDF Attached
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 w-fit">
+                              <AlertCircle className="w-3 h-3 text-amber-400" />
+                              Awaiting Master PDF
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="text-slate-200 font-medium block">{w.author}</span>
+                          <span className="text-[10px] text-slate-500">{w.department}</span>
+                        </td>
+                        <td className="py-3.5 px-4 max-w-[200px] text-slate-300 text-[11px] truncate">
+                          {w.change_summary}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {w.source_storage_path && (
+                              <button
+                                onClick={() => downloadDocumentFile(w.source_storage_path || '', w.source_file_name || `${w.doc_number}_Draft.docx`, w.source_file_url)}
+                                title="Download draft source file"
+                                className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition-colors"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => {
+                                setPromotingDoc(w);
+                                setPromotionPdfFile(null);
+                              }}
+                              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" /> Promote to Controlled PDF
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -608,10 +1473,10 @@ export const QmsDocumentControl: React.FC<Props> = ({
           MODALS
           ========================================================================= */}
 
-      {/* Modal: PDF Viewer with Official Controlled Copy Watermark */}
+      {/* Modal: PDF Viewer with Interactive Master PDF and ISO 9001 Header */}
       {viewingPdfDoc && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-5xl w-full p-6 shadow-2xl space-y-4 max-h-[95vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -619,80 +1484,158 @@ export const QmsDocumentControl: React.FC<Props> = ({
                     {viewingPdfDoc.doc_number}
                   </span>
                   <span className="font-mono text-xs text-slate-400">{viewingPdfDoc.current_revision}</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                    {viewingPdfDoc.category}
+                  </span>
                 </div>
                 <h3 className="text-base font-bold text-white mt-1">{viewingPdfDoc.title}</h3>
               </div>
-              <button onClick={() => setViewingPdfDoc(null)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Official Controlled Document Paper Preview */}
-            <div className="flex-1 overflow-y-auto bg-slate-950 p-8 rounded-xl border border-slate-800 relative space-y-6 text-slate-300 font-sans shadow-inner">
-              {/* Controlled Watermark */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5 select-none rotate-[-30deg]">
-                <span className="text-6xl sm:text-7xl font-extrabold text-red-500 uppercase tracking-widest border-8 border-red-500 p-8 rounded-3xl">
-                  CONTROLLED COPY
-                </span>
-              </div>
-
-              {/* Document Header Table */}
-              <div className="border border-slate-700 rounded-lg p-4 bg-slate-900/60 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
-                <div>
-                  <span className="text-slate-500 block text-[10px] uppercase">Organization</span>
-                  <strong className="text-white">Quality Compass / NHI LLC</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500 block text-[10px] uppercase">Document No</span>
-                  <strong className="text-emerald-400">{viewingPdfDoc.doc_number}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500 block text-[10px] uppercase">Effective Date</span>
-                  <strong className="text-white">{viewingPdfDoc.effective_date}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500 block text-[10px] uppercase">Approved By</span>
-                  <strong className="text-white">{viewingPdfDoc.owner}</strong>
-                </div>
-              </div>
-
-              {/* Body */}
-              <div className="space-y-4 text-xs leading-relaxed">
-                <div>
-                  <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
-                    1. Purpose & Scope
-                  </h4>
-                  <p className="mt-1 text-slate-300">{viewingPdfDoc.description || 'This controlled document defines the mandatory operating criteria and governance requirements.'}</p>
+              
+              <div className="flex items-center gap-2">
+                <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1">
+                  <button
+                    onClick={() => setPdfViewerTab('PDF_VIEW')}
+                    className={`px-3 py-1 text-xs font-semibold rounded ${
+                      pdfViewerTab === 'PDF_VIEW'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Master PDF Viewer
+                  </button>
+                  <button
+                    onClick={() => setPdfViewerTab('CONTROL_SHEET')}
+                    className={`px-3 py-1 text-xs font-semibold rounded ${
+                      pdfViewerTab === 'CONTROL_SHEET'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Control Sheet & Stamp
+                  </button>
                 </div>
 
-                <div>
-                  <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
-                    2. Department & Governance
-                  </h4>
-                  <p className="mt-1 text-slate-300">
-                    Governed by the {viewingPdfDoc.department} department in accordance with ISO 9001:2015 Clause 7.5.3 (Control of documented information).
-                  </p>
-                </div>
-
-                <div>
-                  <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
-                    3. Source File Traceability
-                  </h4>
-                  <p className="mt-1 text-slate-300">
-                    Master editable file is securely retained in the Tier 2 Source File Vault. This PDF represents the immutable, authorized manufacturing release.
-                  </p>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="pt-6 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center text-[10px] font-mono text-slate-500 gap-2">
-                <span>CONTROLLED COPY • DO NOT DUPLICATE WITHOUT AUTHORIZATION</span>
-                <span>ISO 9001:2015 / IATF 16949 COMPLIANT</span>
+                <button onClick={() => setViewingPdfDoc(null)} className="text-slate-400 hover:text-white ml-2">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
+            {/* Modal Body */}
+            {pdfViewerTab === 'PDF_VIEW' ? (
+              <div className="flex-1 min-h-[550px] overflow-hidden bg-slate-950 rounded-xl border border-slate-800 relative flex flex-col items-center justify-center">
+                {isLoadingPdf ? (
+                  <div className="text-center space-y-2 font-mono text-xs text-slate-400">
+                    <RefreshCw className="w-6 h-6 animate-spin text-blue-400 mx-auto" />
+                    <span>Loading Controlled Master PDF from repository...</span>
+                  </div>
+                ) : activePdfUrl ? (
+                  <object
+                    data={activePdfUrl}
+                    type="application/pdf"
+                    className="w-full h-full min-h-[550px] rounded-xl"
+                  >
+                    <iframe 
+                      src={activePdfUrl} 
+                      title="Controlled Document PDF Viewer"
+                      className="w-full h-full min-h-[550px]"
+                    >
+                      <div className="p-8 text-center text-xs text-slate-300">
+                        <p>Your browser does not support inline PDF viewing.</p>
+                        <a 
+                          href={activePdfUrl} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-blue-400 hover:underline"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" /> Open Master PDF in new tab
+                        </a>
+                      </div>
+                    </iframe>
+                  </object>
+                ) : (
+                  <div className="text-center p-8 space-y-3 font-mono text-xs text-slate-400">
+                    <FileText className="w-10 h-10 text-slate-600 mx-auto" />
+                    <p className="text-slate-300 font-sans text-sm font-semibold">
+                      Master PDF binary has not yet been deposited in storage for {viewingPdfDoc.doc_number}.
+                    </p>
+                    <p className="max-w-md mx-auto text-slate-500">
+                      You can promote a working draft with an attached PDF or register an existing PDF master.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Control Sheet & Stamp View */
+              <div className="flex-1 overflow-y-auto bg-slate-950 p-8 rounded-xl border border-slate-800 relative space-y-6 text-slate-300 font-sans shadow-inner">
+                {/* Controlled Watermark */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5 select-none rotate-[-30deg]">
+                  <span className="text-6xl sm:text-7xl font-extrabold text-red-500 uppercase tracking-widest border-8 border-red-500 p-8 rounded-3xl">
+                    CONTROLLED COPY
+                  </span>
+                </div>
+
+                {/* Document Header Table */}
+                <div className="border border-slate-700 rounded-lg p-4 bg-slate-900/60 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
+                  <div>
+                    <span className="text-slate-500 block text-[10px] uppercase">Organization</span>
+                    <strong className="text-white">Quality Compass / NHI LLC</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px] uppercase">Document No</span>
+                    <strong className="text-emerald-400">{viewingPdfDoc.doc_number}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px] uppercase">Effective Date</span>
+                    <strong className="text-white">{viewingPdfDoc.effective_date}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px] uppercase">Approved By</span>
+                    <strong className="text-white">{viewingPdfDoc.owner}</strong>
+                  </div>
+                </div>
+
+                {/* Body Details */}
+                <div className="space-y-4 text-xs leading-relaxed">
+                  <div>
+                    <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
+                      1. Purpose & Scope
+                    </h4>
+                    <p className="mt-1 text-slate-300">{viewingPdfDoc.description || 'This controlled document defines the mandatory operating criteria and governance requirements.'}</p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
+                      2. Department & Governance
+                    </h4>
+                    <p className="mt-1 text-slate-300">
+                      Governed by the {viewingPdfDoc.department} department in accordance with ISO 9001:2015 Clause 7.5.3 (Control of documented information).
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
+                      3. Master Source File Traceability
+                    </h4>
+                    <p className="mt-1 text-slate-300 font-mono text-[11px]">
+                      Master native file ({viewingPdfDoc.source_file_name || `${viewingPdfDoc.doc_number}_Master.docx`}) is securely retained in the Tier 2 Source File Vault.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footer Notice */}
+                <div className="pt-6 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center text-[10px] font-mono text-slate-500 gap-2">
+                  <span>UNCONTROLLED IF PRINTED OR DOWNLOADED • VERIFY CURRENT REVISION IN DCS</span>
+                  <span>ISO 9001:2015 COMPLIANT</span>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Footer */}
             <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-              <span className="text-xs text-slate-400 font-mono">Status: Released & Controlled</span>
+              <span className="text-xs text-slate-400 font-mono">
+                Status: <strong className="text-emerald-400">Approved & Released Master</strong>
+              </span>
               <div className="flex gap-2">
                 <button
                   onClick={() => setViewingPdfDoc(null)}
@@ -701,10 +1644,10 @@ export const QmsDocumentControl: React.FC<Props> = ({
                   Close
                 </button>
                 <button
-                  onClick={() => alert(`Downloading controlled PDF: ${viewingPdfDoc.doc_number}_CONTROLLED.pdf`)}
+                  onClick={() => downloadDocumentFile(viewingPdfDoc.storage_path || '', viewingPdfDoc.pdf_file_name || `${viewingPdfDoc.doc_number}_CONTROLLED.pdf`, viewingPdfDoc.pdf_file_url)}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow"
                 >
-                  <Download className="w-3.5 h-3.5" /> Download Controlled PDF
+                  <Download className="w-3.5 h-3.5" /> Download Master PDF
                 </button>
               </div>
             </div>
@@ -728,10 +1671,54 @@ export const QmsDocumentControl: React.FC<Props> = ({
 
             <form onSubmit={handlePromoteWorkingDoc} className="space-y-4 text-xs">
               <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-1">
-                <span className="font-mono text-xs font-bold text-purple-400 block">{promotingDoc.doc_number}</span>
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-bold text-purple-400">{promotingDoc.doc_number}</span>
+                  <span className="text-[10px] font-mono text-emerald-400 font-bold">{promotingDoc.target_revision}</span>
+                </div>
                 <h4 className="font-bold text-white text-xs">{promotingDoc.title}</h4>
                 <div className="text-[11px] text-slate-400 pt-1">
-                  Target Revision: <strong className="text-emerald-400">{promotingDoc.target_revision}</strong> | Author: {promotingDoc.author}
+                  Native Master: <strong className="text-slate-200 font-mono">{promotingDoc.source_file_name}</strong>
+                </div>
+              </div>
+
+              {/* Upload Finalized Master PDF */}
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">
+                  Compiled Master PDF (.pdf) <span className="text-rose-400">*</span>
+                </label>
+                <div className="border border-dashed border-slate-700 hover:border-slate-500 rounded-lg p-3 bg-slate-950/60 text-center transition-colors">
+                  <input
+                    ref={promotionPdfInputRef}
+                    type="file"
+                    accept=".pdf"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setPromotionPdfFile(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => promotionPdfInputRef.current?.click()}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex items-center gap-2 mx-auto shadow"
+                    >
+                      <Upload className="w-4 h-4" /> Browse Compiled Master PDF (.pdf)
+                    </button>
+                    <span className="text-blue-400 font-semibold block">
+                      {promotionPdfFile 
+                        ? promotionPdfFile.name 
+                        : promotingDoc.draft_pdf_name 
+                        ? `Using attached PDF: ${promotingDoc.draft_pdf_name}` 
+                        : 'Select the signed, compiled PDF exported from Word or Excel'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">
+                      {promotionPdfFile 
+                        ? `${(promotionPdfFile.size / 1024).toFixed(0)} KB ready to release` 
+                        : 'Upload approved read-only PDF'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -768,15 +1755,25 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setPromotingDoc(null)}
+                  disabled={isPromoting}
                   className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
+                  disabled={isPromoting}
                   className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 font-semibold shadow-lg shadow-emerald-500/20 flex items-center gap-1.5"
                 >
-                  <CheckCircle2 className="w-4 h-4" /> Authorize & Release Controlled PDF
+                  {isPromoting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Releasing...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" /> Authorize & Release Controlled PDF
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -784,38 +1781,171 @@ export const QmsDocumentControl: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Modal: Create Working Document Draft */}
-      {isAddWorkingDocModalOpen && (
+      {/* Modal: Check-In Revised Source File from Vault */}
+      {checkingInVaultItem && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Plus className="w-5 h-5 text-purple-400" />
-                Start Working Document Draft
+                <Lock className="w-5 h-5 text-amber-400" />
+                Check-In Revised Native Source File
               </h3>
-              <button onClick={() => setIsAddWorkingDocModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => setCheckingInVaultItem(null)} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateWorkingDoc} className="space-y-4 text-xs">
+            <form onSubmit={handleCheckInSubmit} className="space-y-4 text-xs">
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-1">
+                <span className="font-mono text-xs font-bold text-amber-400">{checkingInVaultItem.doc_number}</span>
+                <h4 className="font-bold text-white text-xs">{checkingInVaultItem.title}</h4>
+                <div className="text-[11px] text-slate-400">
+                  Current Master: <span className="font-mono text-slate-200">{checkingInVaultItem.file_name}</span> ({checkingInVaultItem.revision})
+                </div>
+              </div>
+
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">Incremented Revision Code</label>
+                <input
+                  type="text"
+                  value={checkInNewRev}
+                  onChange={(e) => setCheckInNewRev(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">
+                  Upload Revised File (.docx, .xlsx, .dwg)
+                </label>
+                <div className="border border-dashed border-slate-700 hover:border-slate-500 rounded-lg p-3 bg-slate-950/60 text-center transition-colors">
+                  <input
+                    ref={checkInFileInputRef}
+                    type="file"
+                    accept=".docx,.xlsx,.dwg,.pptx"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setCheckInRevisedFile(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => checkInFileInputRef.current?.click()}
+                      className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold flex items-center gap-2 mx-auto shadow"
+                    >
+                      <Upload className="w-4 h-4" /> Browse Revised File (.docx, .xlsx)
+                    </button>
+                    <span className="text-amber-300 font-semibold block">
+                      {checkInRevisedFile ? checkInRevisedFile.name : 'Choose updated Word or Excel file'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">
+                      {checkInRevisedFile 
+                        ? `${(checkInRevisedFile.size / 1024).toFixed(0)} KB ready to check in` 
+                        : 'Select edited file from your machine'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">Mandatory Change Summary</label>
+                <textarea
+                  rows={2}
+                  value={checkInChangeSummary}
+                  onChange={(e) => setCheckInChangeSummary(e.target.value)}
+                  placeholder="Outline what changed in this revision..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCheckingInVaultItem(null)}
+                  disabled={isProcessingCheckIn}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessingCheckIn}
+                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 font-semibold shadow-lg shadow-amber-500/20 flex items-center gap-1.5"
+                >
+                  {isProcessingCheckIn ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Checking in...
+                    </>
+                  ) : (
+                    'Check-In & Create Draft'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Direct Deposit Master Source File into Vault */}
+      {isDepositVaultModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Upload className="w-5 h-5 text-amber-400" />
+                Deposit Native Master File into Vault
+              </h3>
+              <button onClick={() => setIsDepositVaultModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDepositVaultSubmit} className="space-y-4 text-xs">
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">Select from Repository (or enter custom #)</label>
+                <select
+                  onChange={(e) => {
+                    const match = repositoryCatalog.find((r) => r.doc_number === e.target.value);
+                    if (match) {
+                      setDepositDocNumber(match.doc_number);
+                      setDepositTitle(match.title);
+                      setDepositRev(match.current_revision);
+                    }
+                  }}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs mb-2"
+                >
+                  <option value="">-- Choose Existing Procedure in Repository --</option>
+                  {repositoryCatalog.map((item) => (
+                    <option key={item.id} value={item.doc_number}>
+                      {item.doc_number} — {item.title} ({item.current_revision})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-slate-300 block mb-1 font-medium">Document #</label>
                   <input
                     type="text"
-                    value={newWorkingDoc.doc_number}
-                    onChange={(e) => setNewWorkingDoc({ ...newWorkingDoc, doc_number: e.target.value })}
+                    placeholder="e.g. SOP-QA-001"
+                    value={depositDocNumber}
+                    onChange={(e) => setDepositDocNumber(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                     required
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 block mb-1 font-medium">Target Revision</label>
+                  <label className="text-slate-300 block mb-1 font-medium">Revision</label>
                   <input
                     type="text"
-                    value={newWorkingDoc.target_revision}
-                    onChange={(e) => setNewWorkingDoc({ ...newWorkingDoc, target_revision: e.target.value })}
+                    value={depositRev}
+                    onChange={(e) => setDepositRev(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                     required
                   />
@@ -826,43 +1956,59 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 <label className="text-slate-300 block mb-1 font-medium">Document Title</label>
                 <input
                   type="text"
-                  placeholder="e.g. CMM Optical Comparator Calibration Protocol"
-                  value={newWorkingDoc.title}
-                  onChange={(e) => setNewWorkingDoc({ ...newWorkingDoc, title: e.target.value })}
+                  placeholder="e.g. Optical Comparator Measurement Protocol"
+                  value={depositTitle}
+                  onChange={(e) => setDepositTitle(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
                   required
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-300 block mb-1 font-medium">Category</label>
-                  <select
-                    value={newWorkingDoc.category}
-                    onChange={(e) => setNewWorkingDoc({ ...newWorkingDoc, category: e.target.value as DocumentCategory })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
-                  >
-                    {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-slate-300 block mb-1 font-medium">Author / Owner</label>
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">
+                  Native Source File (.docx, .xlsx, .dwg) <span className="text-rose-400">*</span>
+                </label>
+                <div className="border border-dashed border-slate-700 hover:border-slate-500 rounded-lg p-3 bg-slate-950/60 text-center transition-colors">
                   <input
-                    type="text"
-                    value={newWorkingDoc.author}
-                    onChange={(e) => setNewWorkingDoc({ ...newWorkingDoc, author: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
-                    required
+                    ref={depositFileInputRef}
+                    type="file"
+                    accept=".docx,.xlsx,.dwg,.pptx"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        const file = e.target.files[0];
+                        setDepositFile(file);
+                        if (!depositTitle) {
+                          setDepositTitle(file.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '));
+                        }
+                      }
+                    }}
+                    className="hidden"
                   />
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => depositFileInputRef.current?.click()}
+                      className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold flex items-center gap-2 mx-auto shadow"
+                    >
+                      <Upload className="w-4 h-4" /> Browse Word / Excel Master File
+                    </button>
+                    <span className="text-amber-300 font-semibold block">
+                      {depositFile ? depositFile.name : 'Choose master Word or Excel file'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">
+                      {depositFile ? `${(depositFile.size / 1024).toFixed(0)} KB ready to vault` : 'Select file from disk'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
               <div>
-                <label className="text-slate-300 block mb-1 font-medium">Initial Change Summary / Objectives</label>
+                <label className="text-slate-300 block mb-1 font-medium">Vault Notes / Context</label>
                 <textarea
                   rows={2}
-                  value={newWorkingDoc.change_summary || ''}
-                  onChange={(e) => setNewWorkingDoc({ ...newWorkingDoc, change_summary: e.target.value })}
+                  value={depositNotes}
+                  onChange={(e) => setDepositNotes(e.target.value)}
+                  placeholder="Master native source file deposited into repository..."
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white"
                 />
               </div>
@@ -870,16 +2016,24 @@ export const QmsDocumentControl: React.FC<Props> = ({
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsAddWorkingDocModalOpen(false)}
+                  onClick={() => setIsDepositVaultModalOpen(false)}
+                  disabled={isDepositing}
                   className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 font-semibold shadow-lg shadow-purple-500/20"
+                  disabled={isDepositing || !depositFile}
+                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 font-semibold shadow-lg shadow-amber-500/20 flex items-center gap-1.5"
                 >
-                  Create Working Draft
+                  {isDepositing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Depositing...
+                    </>
+                  ) : (
+                    'Deposit to Vault'
+                  )}
                 </button>
               </div>
             </form>
@@ -887,7 +2041,390 @@ export const QmsDocumentControl: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Modal: Direct Controlled PDF Creation */}
+      {/* Modal: Start Working Draft (Tier 3 Sandbox) */}
+      {isAddWorkingDocModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-purple-400" />
+                  Start Working Draft
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Tier 3 isolated drafting workspace for MS Word (.docx) & Excel (.xlsx) native files.
+                </p>
+              </div>
+              <button 
+                onClick={() => setIsAddWorkingDocModalOpen(false)} 
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Mode Selector Tabs */}
+            <div className="flex rounded-lg bg-slate-950 p-1 border border-slate-800">
+              <button
+                type="button"
+                onClick={handleSwitchToSelectRepoMode}
+                className={`flex-1 py-1.5 px-3 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                  workingDocMode === 'SELECT_REPO'
+                    ? 'bg-purple-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <FolderOpen className="w-3.5 h-3.5" /> Select from Repository Catalog
+              </button>
+              <button
+                type="button"
+                onClick={handleSwitchToNewDocMode}
+                className={`flex-1 py-1.5 px-3 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                  workingDocMode === 'NEW_DOC'
+                    ? 'bg-purple-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <FolderPlus className="w-3.5 h-3.5" /> Create Brand-New Document
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateWorkingDoc} className="space-y-4 text-xs">
+              {/* Mode 1: Select from Repository */}
+              {workingDocMode === 'SELECT_REPO' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-slate-300 block mb-1 font-medium">
+                      Select Master Procedure or Form from Repository <span className="text-purple-400">*</span>
+                    </label>
+                    <select
+                      value={selectedRepoDocId}
+                      onChange={(e) => handleSelectRepositoryDoc(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-medium"
+                      required
+                    >
+                      {repositoryCatalog.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.doc_number} — {item.title} ({item.current_revision}) {item.has_vault_master ? '• [In Vault]' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Selected Item Info Card */}
+                  <div className="p-3 bg-slate-950 rounded-lg border border-purple-500/20 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold text-purple-400">{newWorkingDoc.doc_number}</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400">Target Revision:</span>
+                        <input
+                          type="text"
+                          value={newWorkingDoc.target_revision || ''}
+                          onChange={(e) => setNewWorkingDoc((prev) => ({ ...prev, target_revision: e.target.value }))}
+                          className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-white font-mono text-xs w-20 text-center"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="font-semibold text-white text-xs">{newWorkingDoc.title}</div>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                      <span className="px-2 py-0.5 bg-slate-800 rounded">{newWorkingDoc.category}</span>
+                      <span>Department: {newWorkingDoc.department}</span>
+                    </div>
+
+                    {/* Master Native Source Vault Status */}
+                    <div className="pt-2 border-t border-slate-800/80">
+                      {repositoryCatalog.find((r) => r.id === selectedRepoDocId)?.has_vault_master ? (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5 text-emerald-400 text-[11px] font-medium">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Master source exists in Tier 2 Vault:</span>
+                            <span className="font-mono text-slate-200">
+                              {repositoryCatalog.find((r) => r.id === selectedRepoDocId)?.source_file_name}
+                            </span>
+                          </div>
+                          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer pt-1">
+                            <input
+                              type="checkbox"
+                              checked={useVaultBaseline}
+                              onChange={(e) => setUseVaultBaseline(e.target.checked)}
+                              className="rounded border-slate-700 text-purple-600 focus:ring-0"
+                            />
+                            <span>Branch revision from this existing vault master (or upload an updated file below)</span>
+                          </label>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-amber-400 text-[11px]">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>Standard enterprise baseline. Upload your native authoring file (.docx, .xlsx) below.</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Mode 2: Brand-New Document */}
+              {workingDocMode === 'NEW_DOC' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-300 block mb-1 font-medium">
+                        Document # <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. SOP-QUA-015"
+                        value={newWorkingDoc.doc_number || ''}
+                        onChange={(e) => setNewWorkingDoc((prev) => ({ ...prev, doc_number: e.target.value.toUpperCase() }))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-300 block mb-1 font-medium">
+                        Initial Revision <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={newWorkingDoc.target_revision || 'Rev A'}
+                        onChange={(e) => setNewWorkingDoc((prev) => ({ ...prev, target_revision: e.target.value }))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-slate-300 block mb-1 font-medium">
+                      Document Title <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. CNC Optical Coordinate Measuring Inspection Procedure"
+                      value={newWorkingDoc.title || ''}
+                      onChange={(e) => setNewWorkingDoc((prev) => ({ ...prev, title: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-300 block mb-1 font-medium">Category</label>
+                      <select
+                        value={newWorkingDoc.category || 'SOP'}
+                        onChange={(e) => setNewWorkingDoc((prev) => ({ ...prev, category: e.target.value as DocumentCategory }))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                      >
+                        {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-slate-300 block mb-1 font-medium">Department</label>
+                      <select
+                        value={newWorkingDoc.department || 'Quality Assurance'}
+                        onChange={(e) => setNewWorkingDoc((prev) => ({ ...prev, department: e.target.value }))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                      >
+                        {DEPARTMENTS.filter((d) => d !== 'All Departments').map((dept) => <option key={dept} value={dept}>{dept}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload Native Authoring File (.docx, .xlsx, .dwg) */}
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">
+                  Native Working File (.docx, .xlsx, .dwg)
+                  {workingDocMode === 'NEW_DOC' && <span className="text-slate-500 font-normal"> (recommended)</span>}
+                </label>
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingInModal(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                    setIsDraggingInModal(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingInModal(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      const file = e.dataTransfer.files[0];
+                      setWorkingDocSourceFile(file);
+                      if (workingDocMode === 'NEW_DOC' && !newWorkingDoc.title) {
+                        setNewWorkingDoc((prev) => ({
+                          ...prev,
+                          title: file.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
+                        }));
+                      }
+                    }
+                  }}
+                  className={`border border-dashed rounded-lg p-3 text-center transition-all ${
+                    isDraggingInModal
+                      ? 'border-purple-400 bg-purple-950/40 ring-2 ring-purple-500/30'
+                      : 'border-slate-700 hover:border-slate-500 bg-slate-950/60'
+                  }`}
+                >
+                  <input
+                    ref={workingSourceFileInputRef}
+                    type="file"
+                    accept=".docx,.xlsx,.dwg,.pptx"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        const file = e.target.files[0];
+                        setWorkingDocSourceFile(file);
+                        if (workingDocMode === 'NEW_DOC' && !newWorkingDoc.title) {
+                          setNewWorkingDoc((prev) => ({
+                            ...prev,
+                            title: file.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
+                          }));
+                        }
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => workingSourceFileInputRef.current?.click()}
+                      className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-bold flex items-center gap-2 mx-auto shadow"
+                    >
+                      <Upload className="w-4 h-4" /> Browse Files (.docx, .xlsx, .dwg)
+                    </button>
+                    <span className="text-purple-300 font-semibold block">
+                      {workingDocSourceFile 
+                        ? workingDocSourceFile.name 
+                        : (useVaultBaseline && workingDocMode === 'SELECT_REPO' && repositoryCatalog.find((r) => r.id === selectedRepoDocId)?.has_vault_master)
+                        ? `Using existing vault file: ${newWorkingDoc.source_file_name}`
+                        : 'Choose MS Word (.docx) or Excel (.xlsx) file to upload'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">
+                      {workingDocSourceFile
+                        ? `${(workingDocSourceFile.size / 1024).toFixed(0)} KB ready to upload to repository`
+                        : 'Uploaded directly into storage/working/'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Optional: Draft Master PDF Upload */}
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">
+                  Optional: Draft Master PDF (.pdf) for Preview
+                </label>
+                <div className="border border-dashed border-slate-800 hover:border-slate-700 rounded-lg p-2.5 bg-slate-950/40 text-center transition-colors">
+                  <input
+                    ref={workingDraftPdfInputRef}
+                    type="file"
+                    accept=".pdf"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setWorkingDocDraftPdfFile(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <div className="space-y-1.5">
+                    <button
+                      type="button"
+                      onClick={() => workingDraftPdfInputRef.current?.click()}
+                      className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded border border-slate-700 mx-auto flex items-center gap-1.5"
+                    >
+                      <Upload className="w-3.5 h-3.5" /> Attach Draft PDF (.pdf)
+                    </button>
+                    <span className="text-slate-300 font-medium block">
+                      {workingDocDraftPdfFile ? workingDocDraftPdfFile.name : 'Attach compiled draft PDF if available'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">
+                      {workingDocDraftPdfFile ? `${(workingDocDraftPdfFile.size / 1024).toFixed(0)} KB attached` : 'Enables inline PDF verification in draft stage'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Author & Change Summary */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-300 block mb-1 font-medium">Author / Drafter</label>
+                  <input
+                    type="text"
+                    value={newWorkingDoc.author || currentAuthorName}
+                    onChange={(e) => setNewWorkingDoc((prev) => ({ ...prev, author: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-300 block mb-1 font-medium">Repository Storage Target</label>
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-[10px] font-mono text-purple-300 truncate">
+                    qms-documents/working/{newWorkingDoc.doc_number || 'DOC'}/{newWorkingDoc.target_revision || 'REV'}/
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">
+                  Change Summary / Purpose of Revision <span className="text-rose-400">*</span>
+                </label>
+                <textarea
+                  rows={2}
+                  value={newWorkingDoc.change_summary || ''}
+                  onChange={(e) => setNewWorkingDoc((prev) => ({ ...prev, change_summary: e.target.value }))}
+                  placeholder="Outline the reason for creating or revising this document..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white"
+                  required
+                />
+              </div>
+
+              {/* Lifecycle Info Banner */}
+              <div className="p-2.5 rounded-lg bg-purple-950/20 border border-purple-500/20 text-[11px] text-slate-300 space-y-0.5">
+                <span className="text-purple-400 font-semibold block">Tier 3 Sandbox Governance:</span>
+                <p className="text-[10px] text-slate-400">
+                  This working document is completely isolated from shopfloor controlled documents. It will remain in Tier 3 until promoted and released with an authorized master PDF.
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddWorkingDocModalOpen(false)}
+                  disabled={isCreatingDraft}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingDraft || !newWorkingDoc.doc_number || !newWorkingDoc.title}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 font-semibold shadow-lg shadow-purple-500/20 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isCreatingDraft ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Uploading & Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" /> Create Working Draft
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Direct Controlled PDF Creation (Tier 1) */}
       {isAddDocModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
@@ -901,32 +2438,14 @@ export const QmsDocumentControl: React.FC<Props> = ({
               </button>
             </div>
 
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              const formEl = e.currentTarget;
-              const formData = new FormData(formEl);
-              await onAddDocument({
-                doc_number: formData.get('doc_number') as string,
-                title: formData.get('title') as string,
-                category: formData.get('category') as DocumentCategory,
-                department: formData.get('department') as string,
-                current_revision: formData.get('current_revision') as string,
-                status: 'APPROVED',
-                owner: formData.get('owner') as string,
-                effective_date: formData.get('effective_date') as string,
-                next_review_date: formData.get('next_review_date') as string,
-                description: formData.get('description') as string,
-                pdf_file_name: `${formData.get('doc_number')}_CONTROLLED.pdf`,
-              });
-              setIsAddDocModalOpen(false);
-            }} className="space-y-4 text-xs">
+            <form onSubmit={handleDirectPdfSubmit} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-slate-300 block mb-1 font-medium">Doc Number</label>
                   <input
                     name="doc_number"
                     type="text"
-                    defaultValue="SOP-QA-0"
+                    defaultValue="SOP-QA-001"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                     required
                   />
@@ -958,14 +2477,84 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 <div>
                   <label className="text-slate-300 block mb-1 font-medium">Category</label>
                   <select name="category" defaultValue="SOP" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white">
-                    {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-slate-300 block mb-1 font-medium">Department</label>
                   <select name="department" defaultValue="Quality Assurance" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white">
-                    {DEPARTMENTS.filter(d => d !== 'All Departments').map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                    {DEPARTMENTS.filter((d) => d !== 'All Departments').map((dept) => <option key={dept} value={dept}>{dept}</option>)}
                   </select>
+                </div>
+              </div>
+
+              {/* Master PDF Upload */}
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">
+                  Approved Master PDF (.pdf) <span className="text-rose-400">*</span>
+                </label>
+                <div className="border border-dashed border-slate-700 hover:border-slate-500 rounded-lg p-3 bg-slate-950/60 text-center transition-colors">
+                  <input
+                    ref={directPdfInputRef}
+                    type="file"
+                    accept=".pdf"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setDirectPdfFile(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => directPdfInputRef.current?.click()}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex items-center gap-2 mx-auto shadow"
+                    >
+                      <Upload className="w-4 h-4" /> Browse Master PDF (.pdf)
+                    </button>
+                    <span className="text-blue-400 font-semibold block">
+                      {directPdfFile ? directPdfFile.name : 'Choose finalized controlled PDF'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">
+                      {directPdfFile ? `${(directPdfFile.size / 1024).toFixed(0)} KB ready to register` : 'Signed and released master PDF'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Optional Matching Native Source File Upload */}
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">
+                  Optional: Matching Native Source File (.docx, .xlsx, .dwg)
+                </label>
+                <div className="border border-dashed border-slate-800 hover:border-slate-600 rounded-lg p-2.5 bg-slate-950/40 text-center transition-colors">
+                  <input
+                    ref={directSourceInputRef}
+                    type="file"
+                    accept=".docx,.xlsx,.dwg,.pptx"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setDirectSourceFile(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <div className="space-y-1.5">
+                    <button
+                      type="button"
+                      onClick={() => directSourceInputRef.current?.click()}
+                      className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded border border-slate-700 mx-auto flex items-center gap-1.5"
+                    >
+                      <Upload className="w-3.5 h-3.5" /> Select Native Word / Excel File
+                    </button>
+                    <span className="text-slate-300 font-medium block">
+                      {directSourceFile ? directSourceFile.name : 'Attach native authoring file to deposit into Vault'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">
+                      {directSourceFile ? `${(directSourceFile.size / 1024).toFixed(0)} KB` : 'Links Tier 1 PDF directly to Tier 2 master'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -975,7 +2564,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
                   <input
                     name="owner"
                     type="text"
-                    defaultValue="Sarah Jenkins (QA VP)"
+                    defaultValue={currentAuthorName}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
                     required
                   />
@@ -1008,15 +2597,23 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setIsAddDocModalOpen(false)}
+                  disabled={isRegisteringDirectPdf}
                   className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 font-semibold shadow-lg shadow-blue-500/20"
+                  disabled={isRegisteringDirectPdf}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 font-semibold shadow-lg shadow-blue-500/20 flex items-center gap-1.5"
                 >
-                  Release to Controlled Register
+                  {isRegisteringDirectPdf ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Registering...
+                    </>
+                  ) : (
+                    'Release to Controlled Register'
+                  )}
                 </button>
               </div>
             </form>
