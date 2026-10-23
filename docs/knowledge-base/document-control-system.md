@@ -63,6 +63,8 @@ Tier 1 houses the official, active procedures, work instructions, and forms in p
 
 Tier 2 serves as the secure digital repository for native, editable authoring assets:
 - **Supported Native Types:** Microsoft Word (`.docx`), Microsoft Excel (`.xlsx`), AutoCAD Drawing (`.dwg`), Microsoft PowerPoint (`.pptx`).
+- **Direct Vault Deposit:** Authors and quality engineers can click **"+ Deposit Native Master"** to directly upload and catalog approved master `.docx`/`.xlsx`/`.dwg` assets with revision metadata and notes.
+- **Master File Retrieval:** The **"Download Master"** action allows authorized users to download the exact binary source file from the vault.
 - **Parent Linkage:** Every vault item references a primary `document_id` and `doc_number`.
 - **Check-Out Governance:**
   - When an engineer checks out a source file for revision, `is_checked_out` is set to `true` and `checked_out_by` records the engineer's username.
@@ -74,6 +76,12 @@ Tier 2 serves as the secure digital repository for native, editable authoring as
 
 Tier 3 provides a collaborative staging workspace for documents undergoing active revision:
 - **Stages:** `DRAFT` $\rightarrow$ `IN_REVIEW` $\rightarrow$ `PENDING_APPROVAL`.
+- **Native File Upload & Drag-and-Drop:**
+  - When creating a draft via **"Start Working Draft"**, authors can attach or drag-and-drop Word (`.docx`), Excel (`.xlsx`), or CAD files.
+  - The system automatically parses the document number (e.g. `SOP-QA-001`), clean title, file extension, and file size.
+- **Draft File Management:**
+  - Existing draft rows feature **"Download Draft"** to immediately retrieve the attached working file.
+  - Authors can update or replace draft files at any time via **"Attach File"**.
 - **Sandbox Isolation:** Working drafts are visible only inside the authoring tab and cannot be accessed from plant floor work stations or audit inspections until formally promoted.
 - **Change Summary:** Authors must document proposed changes before submitting for management approval.
 

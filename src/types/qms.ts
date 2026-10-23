@@ -251,6 +251,7 @@ export interface SourceVaultItem {
   uploaded_by: string;
   uploaded_at: string;
   file_url?: string | null;
+  file_data_url?: string | null;
   is_checked_out: boolean;
   checked_out_by?: string | null;
   notes?: string;
@@ -267,8 +268,10 @@ export interface WorkingDocument {
   stage: 'DRAFT' | 'IN_REVIEW' | 'PENDING_APPROVAL';
   source_file_name?: string;
   source_file_type?: string;
+  source_file_size_bytes?: number;
   source_vault_ref?: string;
   draft_pdf_url?: string;
+  file_data_url?: string | null;
   change_summary: string;
   created_at: string;
   updated_at: string;
