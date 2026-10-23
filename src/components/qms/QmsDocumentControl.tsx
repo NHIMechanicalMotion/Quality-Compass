@@ -17,7 +17,8 @@ import {
   UploadCloud,
   Loader2,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Trash2
 } from 'lucide-react';
 import type { 
   ControlledDocument, 
@@ -34,6 +35,7 @@ interface Props {
   onAddDocument: (doc: Partial<ControlledDocument>) => Promise<void>;
   onAddRevision: (docId: string, revision: string, summary: string, author: string, approver?: string) => Promise<void>;
   onUpdateStatus: (docId: string, status: DocumentStatus) => Promise<void>;
+  onDeleteDocument?: (docId: string) => Promise<void>;
 }
 
 const CATEGORIES: DocumentCategory[] = [
@@ -87,6 +89,7 @@ function loadStoredWorkingDocs(): WorkingDocument[] {
 export const QmsDocumentControl: React.FC<Props> = ({
   documents,
   onAddDocument,
+  onDeleteDocument,
 }) => {
   // Consensus-aligned 3-tier view selector
   const [activeTier, setActiveTier] = useState<'CONTROLLED_PDFS' | 'SOURCE_VAULT' | 'WORKING_DOCS'>('CONTROLLED_PDFS');
@@ -94,6 +97,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('All Departments');
+  const [isDeletingDocId, setIsDeletingDocId] = useState<string | null>(null);
 
   // Modals
   const [isAddDocModalOpen, setIsAddDocModalOpen] = useState(false);
@@ -193,6 +197,43 @@ export const QmsDocumentControl: React.FC<Props> = ({
     if (selectedDepartment !== 'All Departments' && doc.department !== selectedDepartment) return false;
     return true;
   });
+
+  // Deletion handlers
+  const handleDeleteControlledDoc = async (doc: ControlledDocument) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to permanently delete document "${doc.doc_number}" (${doc.title})?\n\nThis will remove the document and all associated revisions from the master register.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsDeletingDocId(doc.id);
+      if (onDeleteDocument) {
+        await onDeleteDocument(doc.id);
+      }
+    } catch (err: any) {
+      alert(`Failed to delete document: ${err?.message || err}`);
+    } finally {
+      setIsDeletingDocId(null);
+    }
+  };
+
+  const handleDeleteVaultItem = (item: SourceVaultItem) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to remove "${item.file_name}" (${item.doc_number}) from the Tier 2 Source File Vault?`
+    );
+    if (!confirmed) return;
+
+    setVaultItems((prev) => prev.filter((v) => v.id !== item.id));
+  };
+
+  const handleDeleteWorkingDoc = (doc: WorkingDocument) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to discard draft "${doc.doc_number}" (${doc.title}) from Tier 3 Working Documents?`
+    );
+    if (!confirmed) return;
+
+    setWorkingDocs((prev) => prev.filter((w) => w.id !== doc.id));
+  };
 
   // Promotion handler (Tier 3 Working Doc -> Tier 1 Controlled PDF + Tier 2 Vault)
   const handlePromoteWorkingDoc = async (e: React.FormEvent) => {
@@ -810,6 +851,21 @@ export const QmsDocumentControl: React.FC<Props> = ({
                                   <Lock className="w-3 h-3 text-amber-400" /> Vault
                                 </button>
                               )}
+
+                              {onDeleteDocument && (
+                                <button
+                                  onClick={() => handleDeleteControlledDoc(doc)}
+                                  disabled={isDeletingDocId === doc.id}
+                                  title="Permanently remove document from register"
+                                  className="p-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 rounded border border-rose-500/30 transition-colors disabled:opacity-50"
+                                >
+                                  {isDeletingDocId === doc.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                                  )}
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -961,6 +1017,14 @@ export const QmsDocumentControl: React.FC<Props> = ({
                         >
                           <Download className="w-3.5 h-3.5 text-blue-400" /> Export PDF
                         </button>
+
+                        <button
+                          onClick={() => handleDeleteVaultItem(item)}
+                          title="Remove file from Source Vault"
+                          className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 rounded border border-rose-500/30 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1083,6 +1147,14 @@ export const QmsDocumentControl: React.FC<Props> = ({
                             <ShieldCheck className="w-3.5 h-3.5" />
                             <span>Promote to PDF</span>
                           </button>
+
+                          <button
+                            onClick={() => handleDeleteWorkingDoc(w)}
+                            title="Discard draft working document"
+                            className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 rounded border border-rose-500/30 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1201,7 +1273,21 @@ export const QmsDocumentControl: React.FC<Props> = ({
             </div>
 
             <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-              <span className="text-xs text-slate-400 font-mono">Status: Released & Controlled</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400 font-mono">Status: Released & Controlled</span>
+                {onDeleteDocument && (
+                  <button
+                    onClick={async () => {
+                      const docToDelete = viewingPdfDoc;
+                      setViewingPdfDoc(null);
+                      await handleDeleteControlledDoc(docToDelete);
+                    }}
+                    className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete Document
+                  </button>
+                )}
+              </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => setViewingPdfDoc(null)}

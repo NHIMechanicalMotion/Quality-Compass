@@ -31,6 +31,7 @@ import {
   createControlledDocument, 
   addDocumentRevision, 
   updateDocumentStatus,
+  deleteControlledDocument,
   fetchQmsAudits, 
   createQmsAudit, 
   createAuditFinding, 
@@ -401,6 +402,16 @@ export const QmsDashboard: React.FC<Props> = ({
     }
   };
 
+  const handleDeleteDocument = async (docId: string) => {
+    try {
+      await deleteControlledDocument(docId);
+      setDocuments((prev) => prev.filter((d) => d.id !== docId));
+    } catch (err) {
+      console.error('Failed to delete document:', err);
+      throw err;
+    }
+  };
+
   // Odoo Handlers
   const handleRefreshOdoo = async () => {
     setIsSyncing(true);
@@ -604,6 +615,7 @@ export const QmsDashboard: React.FC<Props> = ({
                 onAddDocument={handleAddDocument}
                 onAddRevision={handleAddDocumentRevision}
                 onUpdateStatus={handleUpdateDocStatus}
+                onDeleteDocument={handleDeleteDocument}
               />
             )}
           </>

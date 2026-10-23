@@ -246,6 +246,43 @@ export async function updateControlledDocumentContent(
   }
 }
 
+export async function deleteControlledDocument(documentId: string): Promise<void> {
+  // 1. Delete linked revisions first to satisfy foreign key constraint
+  const { error: revError } = await db
+    .from('qms_document_revisions')
+    .delete()
+    .eq('document_id', documentId);
+
+  if (revError) {
+    console.error('Error deleting revisions for document:', revError);
+  }
+
+  // 2. Delete the master document row
+  const { error: docError } = await db
+    .from('qms_documents')
+    .delete()
+    .eq('id', documentId);
+
+  if (docError) {
+    console.error('Error deleting document from Supabase:', docError);
+    throw docError;
+  }
+
+  // 3. Clean up local cache
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = localStorage.getItem('qc_controlled_docs_cache');
+      if (raw) {
+        const cache = JSON.parse(raw);
+        delete cache[documentId];
+        localStorage.setItem('qc_controlled_docs_cache', JSON.stringify(cache));
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
 /* =========================================================================
    2. INTERNAL & EXTERNAL AUDITS
    ========================================================================= */
