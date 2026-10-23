@@ -24,6 +24,7 @@ import type {
   WorkingDocument
 } from '../../types/qms';
 import { downloadControlledDocumentPdf } from '../../services/controlledPdfGenerator';
+import { parseUploadedDocument } from '../../services/docParser';
 
 interface Props {
   documents: ControlledDocument[];
@@ -104,12 +105,16 @@ export const QmsDocumentControl: React.FC<Props> = ({
     revision: string;
     department: string;
     notes: string;
+    extracted_text?: string | null;
+    extracted_sections?: Array<{ num?: string; title: string; content: string }> | null;
   }>({
     doc_number: '',
     title: '',
     revision: 'Rev A',
     department: 'Quality Assurance',
     notes: '',
+    extracted_text: null,
+    extracted_sections: null,
   });
 
   // Filter logic for Tier 1 Controlled Documents
@@ -143,6 +148,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
       effective_date: new Date().toISOString().slice(0, 10),
       next_review_date: new Date(Date.now() + 86400000 * 365).toISOString().slice(0, 10),
       description: promotingDoc.change_summary,
+      extracted_text: promotingDoc.extracted_text,
+      extracted_sections: promotingDoc.extracted_sections,
       pdf_file_name: `${promotingDoc.doc_number}_${promotingDoc.target_revision.replace(/\s+/g, '')}_CONTROLLED.pdf`,
       approved_by: approverName,
       approved_at: new Date().toISOString().slice(0, 10),
@@ -159,6 +166,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
       file_type: promotingDoc.source_file_type || 'docx',
       file_size_bytes: promotingDoc.source_file_size_bytes || 2150000,
       file_data_url: promotingDoc.file_data_url || null,
+      extracted_text: promotingDoc.extracted_text || null,
+      extracted_sections: promotingDoc.extracted_sections || null,
       uploaded_by: promotingDoc.author,
       uploaded_at: new Date().toISOString().slice(0, 10),
       is_checked_out: false,
@@ -186,6 +195,9 @@ export const QmsDocumentControl: React.FC<Props> = ({
       source_file_name: vaultItem.file_name,
       source_file_type: vaultItem.file_type,
       source_vault_ref: vaultItem.id,
+      file_data_url: vaultItem.file_data_url,
+      extracted_text: vaultItem.extracted_text,
+      extracted_sections: vaultItem.extracted_sections,
       change_summary: vaultItem.notes || `Promoting checked-in master source file (${vaultItem.file_name}) to released Controlled PDF.`,
       created_at: vaultItem.uploaded_at || new Date().toISOString().slice(0, 10),
       updated_at: new Date().toISOString().slice(0, 10),
@@ -211,7 +223,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
   };
 
   // Handle draft file selection in Start Working Draft modal
-  const handleDraftFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDraftFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -227,6 +239,18 @@ export const QmsDocumentControl: React.FC<Props> = ({
       .replace(/[_-]/g, ' ')
       .trim();
 
+    // Parse text and sections from the Word doc / text file
+    let parsedText = '';
+    let parsedSections: Array<{ num?: string; title: string; content: string }> = [];
+
+    try {
+      const parsed = await parseUploadedDocument(file);
+      parsedText = parsed.rawText;
+      parsedSections = parsed.sections;
+    } catch (err) {
+      console.warn('Failed to parse uploaded document:', err);
+    }
+
     setNewWorkingDoc((prev) => ({
       ...prev,
       source_file_name: file.name,
@@ -234,6 +258,9 @@ export const QmsDocumentControl: React.FC<Props> = ({
       source_file_size_bytes: file.size,
       doc_number: prev.doc_number || detectedDocNo,
       title: prev.title || cleanTitle,
+      extracted_text: parsedText || prev.extracted_text,
+      extracted_sections: parsedSections.length > 0 ? parsedSections : prev.extracted_sections,
+      change_summary: prev.change_summary || (parsedSections.length > 0 ? `Uploaded source file: ${file.name}. Parsed ${parsedSections.length} section(s).` : ''),
     }));
 
     const reader = new FileReader();
@@ -260,6 +287,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
       source_file_type: newWorkingDoc.source_file_type || 'docx',
       source_file_size_bytes: selectedDraftFile?.size || 154000,
       file_data_url: draftFileDataUrl,
+      extracted_text: newWorkingDoc.extracted_text || null,
+      extracted_sections: newWorkingDoc.extracted_sections || null,
       change_summary: newWorkingDoc.change_summary || '',
       created_at: new Date().toISOString().slice(0, 10),
       updated_at: new Date().toISOString().slice(0, 10),
@@ -277,15 +306,28 @@ export const QmsDocumentControl: React.FC<Props> = ({
       author: '',
       source_file_name: '',
       change_summary: '',
+      extracted_text: null,
+      extracted_sections: null,
     });
   };
 
   // Upload or replace draft file on an existing Tier 3 draft row
-  const handleUploadToExistingDraft = (draftId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadToExistingDraft = async (draftId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const ext = file.name.split('.').pop()?.toLowerCase() || 'docx';
+
+    let parsedText = '';
+    let parsedSections: Array<{ num?: string; title: string; content: string }> = [];
+    try {
+      const parsed = await parseUploadedDocument(file);
+      parsedText = parsed.rawText;
+      parsedSections = parsed.sections;
+    } catch (err) {
+      console.warn('Failed to parse uploaded document:', err);
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
@@ -298,6 +340,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 source_file_type: ext,
                 source_file_size_bytes: file.size,
                 file_data_url: dataUrl,
+                extracted_text: parsedText || d.extracted_text,
+                extracted_sections: parsedSections.length > 0 ? parsedSections : d.extracted_sections,
                 updated_at: new Date().toISOString().slice(0, 10),
               }
             : d
@@ -329,7 +373,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
   };
 
   // Handler for Tier 2 Vault deposit file change
-  const handleVaultFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVaultFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -341,10 +385,22 @@ export const QmsDocumentControl: React.FC<Props> = ({
       .replace(/[_-]/g, ' ')
       .trim();
 
+    let parsedText = '';
+    let parsedSections: Array<{ num?: string; title: string; content: string }> = [];
+    try {
+      const parsed = await parseUploadedDocument(file);
+      parsedText = parsed.rawText;
+      parsedSections = parsed.sections;
+    } catch (err) {
+      console.warn('Failed to parse uploaded document:', err);
+    }
+
     setNewVaultItem((prev) => ({
       ...prev,
       doc_number: prev.doc_number || detectedDocNo,
       title: prev.title || cleanTitle,
+      extracted_text: parsedText,
+      extracted_sections: parsedSections,
     }));
 
     const reader = new FileReader();
@@ -372,6 +428,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
       file_type: ext,
       file_size_bytes: selectedVaultFile ? selectedVaultFile.size : 245000,
       file_data_url: vaultFileDataUrl,
+      extracted_text: newVaultItem.extracted_text || null,
+      extracted_sections: newVaultItem.extracted_sections || null,
       uploaded_by: 'Quality Engineering',
       uploaded_at: new Date().toISOString().slice(0, 10),
       is_checked_out: false,
@@ -388,6 +446,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
       revision: 'Rev A',
       department: 'Quality Assurance',
       notes: '',
+      extracted_text: null,
+      extracted_sections: null,
     });
   };
 
@@ -975,30 +1035,49 @@ export const QmsDocumentControl: React.FC<Props> = ({
 
               {/* Body */}
               <div className="space-y-4 text-xs leading-relaxed">
-                <div>
-                  <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
-                    1. Purpose & Scope
-                  </h4>
-                  <p className="mt-1 text-slate-300">{viewingPdfDoc.description || 'This controlled document defines the mandatory operating criteria and governance requirements.'}</p>
-                </div>
+                {viewingPdfDoc.extracted_sections && viewingPdfDoc.extracted_sections.length > 0 ? (
+                  viewingPdfDoc.extracted_sections.map((sec, idx) => (
+                    <div key={idx} className="space-y-1">
+                      <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
+                        {sec.num ? `${sec.num} ${sec.title}` : sec.title}
+                      </h4>
+                      <div className="text-slate-300 whitespace-pre-line leading-relaxed font-sans">
+                        {sec.content}
+                      </div>
+                    </div>
+                  ))
+                ) : viewingPdfDoc.extracted_text ? (
+                  <div className="text-slate-300 whitespace-pre-line leading-relaxed font-sans">
+                    {viewingPdfDoc.extracted_text}
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
+                        1. Purpose & Scope
+                      </h4>
+                      <p className="mt-1 text-slate-300">{viewingPdfDoc.description || 'This controlled document defines the mandatory operating criteria and governance requirements.'}</p>
+                    </div>
 
-                <div>
-                  <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
-                    2. Department & Governance
-                  </h4>
-                  <p className="mt-1 text-slate-300">
-                    Governed by the {viewingPdfDoc.department} department in accordance with ISO 9001:2015 Clause 7.5.3 (Control of documented information).
-                  </p>
-                </div>
+                    <div>
+                      <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
+                        2. Department & Governance
+                      </h4>
+                      <p className="mt-1 text-slate-300">
+                        Governed by the {viewingPdfDoc.department} department in accordance with ISO 9001:2015 Clause 7.5.3 (Control of documented information).
+                      </p>
+                    </div>
 
-                <div>
-                  <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
-                    3. Source File Traceability
-                  </h4>
-                  <p className="mt-1 text-slate-300">
-                    Master editable file is securely retained in the Tier 2 Source File Vault. This PDF represents the immutable, authorized manufacturing release.
-                  </p>
-                </div>
+                    <div>
+                      <h4 className="font-bold text-white text-sm uppercase tracking-wide border-b border-slate-800 pb-1">
+                        3. Source File Traceability
+                      </h4>
+                      <p className="mt-1 text-slate-300">
+                        Master editable file is securely retained in the Tier 2 Source File Vault. This PDF represents the immutable, authorized manufacturing release.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Footer */}

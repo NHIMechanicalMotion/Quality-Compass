@@ -109,14 +109,16 @@ flowchart TD
 1. **Direct Dual-Tier Initiation**:
    - From **Tier 3 (Working Documents)**: Click **"Promote to Controlled PDF"** on the draft row.
    - From **Tier 2 (Source Vault)**: Click **"Promote to Controlled PDF"** directly on any master native file row, or click **"Export PDF"** to generate an instant controlled copy.
-2. **Automated Controlled PDF Compilation**:
-   - Quality Compass uses `src/services/controlledPdfGenerator.ts` (`generateControlledDocumentPdf`) to compile an official ISO 9001:2015 Clause 7.5.3 controlled PDF.
-   - Automatically applies the diagonal `CONTROLLED DOCUMENT — NHI MECHANICAL MOTION LLC` watermark, title block, uncontrolled copy warning banner, and electronic approval authentication stamp.
+2. **Automated Controlled PDF Compilation & Native Word Extraction**:
+   - When a Microsoft Word (`.docx`) file is uploaded, Quality Compass parses the document binary via `src/services/docParser.ts` (using `mammoth`), extracting raw text, headings, and structured sections (`num`, `title`, `content`).
+   - `src/services/controlledPdfGenerator.ts` (`generateControlledDocumentPdf`) carries all real document sections and paragraphs directly into the compiled PDF.
+   - Dynamic multi-page pagination automatically handles documents of any length, applying running headers, page borders, diagonal semi-transparent watermarks (`CONTROLLED DOCUMENT — NHI MECHANICAL MOTION LLC`), and footers (`Page X of Y`) across every page.
+   - On the final page, it renders the official QA Approval Authentication block with electronic signature hash and green ISO 9001:2015 Verified stamp.
    - Allows live preview and downloading before formal authorization.
 3. **Authorization & Sign-Off**:
    - System prompts for QA Approving Authority (QA Executive / Lead) and sign-off notes.
 4. **Automated Lifecycle Execution**:
    - The previous Tier-1 revision is preserved in `qms_document_revisions` as an archived immutable record.
-   - The active `qms_documents` record is updated with the new revision code, effective date, and PDF file reference.
+   - The active `qms_documents` record is updated with the new revision code, effective date, extracted sections, and PDF file reference.
    - Master editable source file (`.docx`/`.xlsx`/`.dwg`) is checked into Tier 2 Source Vault.
    - The working draft in Tier 3 is closed.

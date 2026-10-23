@@ -234,6 +234,8 @@ export interface ControlledDocument {
   source_file_name?: string | null;
   source_file_type?: string | null;
   watermark_text?: string;
+  extracted_text?: string | null;
+  extracted_sections?: Array<{ num?: string; title: string; content: string }> | null;
   revisions?: QmsDocumentRevision[];
   created_at?: string;
   updated_at?: string;
@@ -252,6 +254,8 @@ export interface SourceVaultItem {
   uploaded_at: string;
   file_url?: string | null;
   file_data_url?: string | null;
+  extracted_text?: string | null;
+  extracted_sections?: Array<{ num?: string; title: string; content: string }> | null;
   is_checked_out: boolean;
   checked_out_by?: string | null;
   notes?: string;
@@ -272,6 +276,8 @@ export interface WorkingDocument {
   source_vault_ref?: string;
   draft_pdf_url?: string;
   file_data_url?: string | null;
+  extracted_text?: string | null;
+  extracted_sections?: Array<{ num?: string; title: string; content: string }> | null;
   change_summary: string;
   created_at: string;
   updated_at: string;
