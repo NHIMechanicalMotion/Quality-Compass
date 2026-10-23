@@ -60,33 +60,77 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let isMounted = true;
 
-    async function initSession() {
+    async function loadUserFromSession(session: any) {
+      if (!session?.user) {
+        if (isMounted) setCurrentUser(null);
+        return;
+      }
+
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user && isMounted) {
-          // Look up user_accounts by auth_user_id
-          const { data: acc } = await (supabase as any)
-            .from('user_accounts')
+        // Look up user_accounts by auth_user_id
+        let { data: acc } = await (supabase as any)
+          .from('user_accounts')
+          .select('*')
+          .eq('auth_user_id', session.user.id)
+          .limit(1)
+          .maybeSingle();
+
+        // If no account is directly linked to auth_user_id yet, match by email (common for newly invited users)
+        if (!acc && session.user.email) {
+          const cleanEmail = session.user.email.toLowerCase().trim();
+          const { data: personByEmail } = await (supabase as any)
+            .from('people')
             .select('*')
-            .eq('auth_user_id', session.user.id)
+            .eq('email', cleanEmail)
             .limit(1)
             .maybeSingle();
 
-          if (acc && acc.is_active && !acc.is_locked) {
-            const person = await fetchPersonById(acc.person_id);
-            if (person) {
-              const roles = await fetchPersonRoleAssignments(person.id);
-              setCurrentUser({
-                person,
-                account: acc,
-                roles,
-                authMethod: session.user.email?.endsWith('@kiosk.nhimm.internal') ? 'FLOOR_PIN' : 'OFFICE_PASSWORD',
-                isKiosk: session.user.email?.endsWith('@kiosk.nhimm.internal') || false,
-                pinMustChange: acc.pin_must_change,
-              });
-              setPinMustChange(acc.pin_must_change);
+          if (personByEmail) {
+            const { data: accByPerson } = await (supabase as any)
+              .from('user_accounts')
+              .select('*')
+              .eq('person_id', personByEmail.id)
+              .limit(1)
+              .maybeSingle();
+
+            if (accByPerson) {
+              acc = accByPerson;
+              // Auto-link auth_user_id to the user_accounts record
+              if (!accByPerson.auth_user_id) {
+                await (supabase as any)
+                  .from('user_accounts')
+                  .update({ auth_user_id: session.user.id })
+                  .eq('id', accByPerson.id);
+              }
             }
           }
+        }
+
+        if (acc && acc.is_active && !acc.is_locked && isMounted) {
+          const person = await fetchPersonById(acc.person_id);
+          if (person) {
+            const roles = await fetchPersonRoleAssignments(person.id);
+            setCurrentUser({
+              person,
+              account: acc,
+              roles,
+              authMethod: session.user.email?.endsWith('@kiosk.nhimm.internal') ? 'FLOOR_PIN' : 'OFFICE_PASSWORD',
+              isKiosk: session.user.email?.endsWith('@kiosk.nhimm.internal') || false,
+              pinMustChange: acc.pin_must_change,
+            });
+            setPinMustChange(acc.pin_must_change);
+          }
+        }
+      } catch (err) {
+        console.warn('Session user load error:', err);
+      }
+    }
+
+    async function initSession() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && isMounted) {
+          await loadUserFromSession(session);
         }
       } catch (err) {
         console.warn('Session initialization warning:', err);
@@ -98,10 +142,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initSession();
 
     // Listen to Supabase auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
         setPinMustChange(false);
+      } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
+        if (session && isMounted) {
+          await loadUserFromSession(session);
+        }
       }
     });
 
