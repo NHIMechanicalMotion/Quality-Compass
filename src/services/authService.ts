@@ -69,10 +69,37 @@ export async function loginOffice(email: string, password: string): Promise<Auth
     } else {
       accountQuery = accountQuery.eq('auth_user_id', authData.user.id);
     }
-    const { data: accountData, error: accError } = await accountQuery.limit(1).maybeSingle();
+    let { data: accountData, error: accError } = await accountQuery.limit(1).maybeSingle();
 
     if (accError) {
       console.error('Error fetching user account:', accError);
+    }
+
+    // Auto-provision user_accounts record if person exists in directory
+    if (!accountData && personData) {
+      const { data: newAccount, error: createAccErr } = await db
+        .from('user_accounts')
+        .insert([{
+          person_id: personData.id,
+          auth_user_id: authData.user.id,
+          is_active: true,
+          is_locked: false,
+          failed_attempts: 0,
+          pin_must_change: false,
+        }])
+        .select()
+        .single();
+
+      if (!createAccErr && newAccount) {
+        accountData = newAccount;
+      }
+    } else if (accountData && !accountData.auth_user_id) {
+      // Link the authenticated user id
+      await db
+        .from('user_accounts')
+        .update({ auth_user_id: authData.user.id })
+        .eq('id', accountData.id);
+      accountData.auth_user_id = authData.user.id;
     }
 
     if (!accountData) {
