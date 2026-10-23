@@ -45,10 +45,50 @@ export async function fetchControlledDocuments(): Promise<ControlledDocument[]> 
       return acc;
     }, {});
 
-    return (docs || []).map((d: any) => ({
-      ...d,
-      revisions: revisionsByDoc[d.id] || [],
-    }));
+    // Local storage fallback cache for fast client hydration
+    let localCache: Record<string, { text?: string | null; sections?: any[] | null }> = {};
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const rawCache = localStorage.getItem('qc_controlled_docs_cache');
+        if (rawCache) localCache = JSON.parse(rawCache);
+      }
+    } catch {
+      // ignore
+    }
+
+    return (docs || []).map((d: any) => {
+      let extracted_text: string | null = null;
+      let extracted_sections: Array<{ num?: string; title: string; content: string }> | null = null;
+      let actualFileUrl: string | null = d.file_url;
+
+      if (d.file_url && typeof d.file_url === 'string' && d.file_url.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(d.file_url);
+          if (parsed && (parsed.sections || parsed.text)) {
+            extracted_text = parsed.text || null;
+            extracted_sections = parsed.sections || null;
+            actualFileUrl = parsed.url || null;
+          }
+        } catch {
+          // not JSON, keep as raw file_url
+        }
+      }
+
+      // Check local cache if not stored in Supabase row
+      if (!extracted_sections && (localCache[d.id] || localCache[d.doc_number])) {
+        const cached = localCache[d.id] || localCache[d.doc_number];
+        extracted_text = cached.text || null;
+        extracted_sections = cached.sections || null;
+      }
+
+      return {
+        ...d,
+        file_url: actualFileUrl,
+        extracted_text,
+        extracted_sections,
+        revisions: revisionsByDoc[d.id] || [],
+      };
+    });
   } catch (err) {
     console.error('Failed to fetch controlled documents from Supabase:', err);
     return [];
@@ -56,6 +96,20 @@ export async function fetchControlledDocuments(): Promise<ControlledDocument[]> 
 }
 
 export async function createControlledDocument(doc: Partial<ControlledDocument>): Promise<ControlledDocument> {
+  let fileUrlPayload = doc.file_url || null;
+
+  if (doc.extracted_sections || doc.extracted_text) {
+    try {
+      fileUrlPayload = JSON.stringify({
+        url: doc.file_url || null,
+        text: doc.extracted_text || null,
+        sections: doc.extracted_sections || null,
+      });
+    } catch (e) {
+      console.warn('Could not serialize document sections into file_url:', e);
+    }
+  }
+
   const { data, error } = await db
     .from('qms_documents')
     .insert([
@@ -70,7 +124,7 @@ export async function createControlledDocument(doc: Partial<ControlledDocument>)
         effective_date: doc.effective_date || new Date().toISOString().slice(0, 10),
         next_review_date: doc.next_review_date,
         description: doc.description,
-        file_url: doc.file_url,
+        file_url: fileUrlPayload,
       },
     ])
     .select()
@@ -81,19 +135,39 @@ export async function createControlledDocument(doc: Partial<ControlledDocument>)
     throw error;
   }
 
+  // Also cache locally
+  if (doc.extracted_sections || doc.extracted_text) {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = localStorage.getItem('qc_controlled_docs_cache');
+        const cache = raw ? JSON.parse(raw) : {};
+        cache[data.id] = { text: doc.extracted_text, sections: doc.extracted_sections };
+        cache[data.doc_number] = { text: doc.extracted_text, sections: doc.extracted_sections };
+        localStorage.setItem('qc_controlled_docs_cache', JSON.stringify(cache));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   // Also insert the initial revision record
   await db.from('qms_document_revisions').insert([
     {
       document_id: data.id,
       revision: data.current_revision,
-      change_summary: 'Initial document release.',
+      change_summary: doc.description || 'Initial document release.',
       created_by: data.owner,
       approved_by: data.status === 'APPROVED' ? data.owner : null,
       status: data.status,
     },
   ]);
 
-  return data;
+  return {
+    ...data,
+    file_url: doc.file_url || null,
+    extracted_text: doc.extracted_text || null,
+    extracted_sections: doc.extracted_sections || null,
+  };
 }
 
 export async function addDocumentRevision(
@@ -140,6 +214,36 @@ export async function updateDocumentStatus(documentId: string, status: DocumentS
     .eq('id', documentId);
 
   if (error) throw error;
+}
+
+export async function updateControlledDocumentContent(
+  documentId: string,
+  extracted_text?: string | null,
+  extracted_sections?: Array<{ num?: string; title: string; content: string }> | null
+): Promise<void> {
+  const payload = JSON.stringify({
+    text: extracted_text || null,
+    sections: extracted_sections || null,
+  });
+
+  const { error } = await db
+    .from('qms_documents')
+    .update({ file_url: payload, updated_at: new Date().toISOString() })
+    .eq('id', documentId);
+
+  if (error) console.error('Error updating document content in Supabase:', error);
+
+  // Update local cache
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = localStorage.getItem('qc_controlled_docs_cache');
+      const cache = raw ? JSON.parse(raw) : {};
+      cache[documentId] = { text: extracted_text, sections: extracted_sections };
+      localStorage.setItem('qc_controlled_docs_cache', JSON.stringify(cache));
+    }
+  } catch {
+    // ignore
+  }
 }
 
 /* =========================================================================

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FileText, 
   Plus, 
@@ -14,7 +14,10 @@ import {
   File, 
   Eye,
   Upload,
-  UploadCloud
+  UploadCloud,
+  Loader2,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import type { 
   ControlledDocument, 
@@ -50,9 +53,36 @@ const DEPARTMENTS = [
   'Executive',
 ];
 
+const VAULT_STORAGE_KEY = 'qc_vault_items';
+const WORKING_DOCS_STORAGE_KEY = 'qc_working_docs';
+
 // Initial empty state for native vault files and working drafts
 const INITIAL_VAULT_ITEMS: SourceVaultItem[] = [];
 const INITIAL_WORKING_DOCS: WorkingDocument[] = [];
+
+function loadStoredVaultItems(): SourceVaultItem[] {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(VAULT_STORAGE_KEY);
+      if (stored) return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.warn('Failed to load vault items from localStorage:', e);
+  }
+  return INITIAL_VAULT_ITEMS;
+}
+
+function loadStoredWorkingDocs(): WorkingDocument[] {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(WORKING_DOCS_STORAGE_KEY);
+      if (stored) return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.warn('Failed to load working docs from localStorage:', e);
+  }
+  return INITIAL_WORKING_DOCS;
+}
 
 export const QmsDocumentControl: React.FC<Props> = ({
   documents,
@@ -76,9 +106,9 @@ export const QmsDocumentControl: React.FC<Props> = ({
   const [approverName, setApproverName] = useState('');
   const [approvalNotes, setApprovalNotes] = useState('');
 
-  // Tier 2 & 3 local states
-  const [vaultItems, setVaultItems] = useState<SourceVaultItem[]>(INITIAL_VAULT_ITEMS);
-  const [workingDocs, setWorkingDocs] = useState<WorkingDocument[]>(INITIAL_WORKING_DOCS);
+  // Tier 2 & 3 local states with localStorage persistence
+  const [vaultItems, setVaultItems] = useState<SourceVaultItem[]>(loadStoredVaultItems);
+  const [workingDocs, setWorkingDocs] = useState<WorkingDocument[]>(loadStoredWorkingDocs);
   const [isAddWorkingDocModalOpen, setIsAddWorkingDocModalOpen] = useState(false);
   const [newWorkingDoc, setNewWorkingDoc] = useState<Partial<WorkingDocument>>({
     doc_number: '',
@@ -90,6 +120,39 @@ export const QmsDocumentControl: React.FC<Props> = ({
     source_file_name: '',
     change_summary: '',
   });
+
+  // Sync to localStorage
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(vaultItems));
+      }
+    } catch {
+      // ignore
+    }
+  }, [vaultItems]);
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(WORKING_DOCS_STORAGE_KEY, JSON.stringify(workingDocs));
+      }
+    } catch {
+      // ignore
+    }
+  }, [workingDocs]);
+
+  // Parsing states
+  const [isParsingDraft, setIsParsingDraft] = useState(false);
+  const [isParsingVault, setIsParsingVault] = useState(false);
+  const [isParsingTier1, setIsParsingTier1] = useState(false);
+  const [showDraftSectionPreview, setShowDraftSectionPreview] = useState(false);
+  const [showVaultSectionPreview, setShowVaultSectionPreview] = useState(false);
+
+  // Optional file upload state for Tier 1 direct registration
+  const [tier1File, setTier1File] = useState<File | null>(null);
+  const [tier1ExtractedText, setTier1ExtractedText] = useState<string | null>(null);
+  const [tier1ExtractedSections, setTier1ExtractedSections] = useState<Array<{ num?: string; title: string; content: string }> | null>(null);
 
   // File upload state for Tier 3 Working Drafts
   const [selectedDraftFile, setSelectedDraftFile] = useState<File | null>(null);
@@ -136,6 +199,9 @@ export const QmsDocumentControl: React.FC<Props> = ({
     e.preventDefault();
     if (!promotingDoc) return;
 
+    const finalApprover = approverName.trim() || 'VP Quality Assurance';
+    const finalNotes = approvalNotes.trim() || 'Official release and controlled watermark compilation.';
+
     // 1. Add to Controlled Documents
     await onAddDocument({
       doc_number: promotingDoc.doc_number,
@@ -151,7 +217,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
       extracted_text: promotingDoc.extracted_text,
       extracted_sections: promotingDoc.extracted_sections,
       pdf_file_name: `${promotingDoc.doc_number}_${promotingDoc.target_revision.replace(/\s+/g, '')}_CONTROLLED.pdf`,
-      approved_by: approverName,
+      approved_by: finalApprover,
       approved_at: new Date().toISOString().slice(0, 10),
     });
 
@@ -171,18 +237,30 @@ export const QmsDocumentControl: React.FC<Props> = ({
       uploaded_by: promotingDoc.author,
       uploaded_at: new Date().toISOString().slice(0, 10),
       is_checked_out: false,
-      notes: `Archived during promotion to Controlled PDF by ${approverName}.`,
+      notes: `Archived during promotion to Controlled PDF by ${finalApprover}.`,
     };
-    setVaultItems(prev => [vaultEntry, ...prev]);
+    setVaultItems((prev) => [vaultEntry, ...prev]);
 
-    // 3. Remove from Working Documents
-    setWorkingDocs(prev => prev.filter(w => w.id !== promotingDoc.id));
+    // 3. Immediately trigger automatic download of the compiled Controlled PDF!
+    downloadControlledDocumentPdf(
+      {
+        ...promotingDoc,
+        status: 'APPROVED',
+        approved_by: finalApprover,
+        approved_at: new Date().toISOString().slice(0, 10),
+      },
+      finalApprover,
+      finalNotes
+    );
+
+    // 4. Remove from Working Documents
+    setWorkingDocs((prev) => prev.filter((w) => w.id !== promotingDoc.id));
     setPromotingDoc(null);
   };
 
   // Direct promotion from Tier 2 Source File Vault -> Tier 1 Controlled PDF
   const handlePromoteFromVault = (vaultItem: SourceVaultItem) => {
-    const existingDoc = documents.find(d => d.doc_number === vaultItem.doc_number);
+    const existingDoc = documents.find((d) => d.doc_number === vaultItem.doc_number);
     const doc: WorkingDocument = {
       id: `work-vault-${vaultItem.id}`,
       doc_number: vaultItem.doc_number,
@@ -209,17 +287,19 @@ export const QmsDocumentControl: React.FC<Props> = ({
 
   // Check out source file from vault
   const handleToggleVaultCheckout = (vaultId: string) => {
-    setVaultItems(prev => prev.map(v => {
-      if (v.id === vaultId) {
-        const nextState = !v.is_checked_out;
-        return {
-          ...v,
-          is_checked_out: nextState,
-          checked_out_by: nextState ? 'Current User (Author)' : null,
-        };
-      }
-      return v;
-    }));
+    setVaultItems((prev) =>
+      prev.map((v) => {
+        if (v.id === vaultId) {
+          const nextState = !v.is_checked_out;
+          return {
+            ...v,
+            is_checked_out: nextState,
+            checked_out_by: nextState ? 'Current User (Author)' : null,
+          };
+        }
+        return v;
+      })
+    );
   };
 
   // Handle draft file selection in Start Working Draft modal
@@ -228,6 +308,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
     if (!file) return;
 
     setSelectedDraftFile(file);
+    setIsParsingDraft(true);
     const ext = file.name.split('.').pop()?.toLowerCase() || 'docx';
 
     // Auto-detect doc number pattern if present in filename (e.g. SOP-QA-001)
@@ -239,7 +320,6 @@ export const QmsDocumentControl: React.FC<Props> = ({
       .replace(/[_-]/g, ' ')
       .trim();
 
-    // Parse text and sections from the Word doc / text file
     let parsedText = '';
     let parsedSections: Array<{ num?: string; title: string; content: string }> = [];
 
@@ -249,6 +329,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
       parsedSections = parsed.sections;
     } catch (err) {
       console.warn('Failed to parse uploaded document:', err);
+    } finally {
+      setIsParsingDraft(false);
     }
 
     setNewWorkingDoc((prev) => ({
@@ -297,6 +379,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
     setIsAddWorkingDocModalOpen(false);
     setSelectedDraftFile(null);
     setDraftFileDataUrl(null);
+    setShowDraftSectionPreview(false);
     setNewWorkingDoc({
       doc_number: '',
       title: '',
@@ -378,6 +461,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
     if (!file) return;
 
     setSelectedVaultFile(file);
+    setIsParsingVault(true);
     const docMatch = file.name.match(/([A-Z]{2,5}-[A-Z0-9]+-\d+)/i);
     const detectedDocNo = docMatch ? docMatch[1].toUpperCase() : '';
     const cleanTitle = file.name
@@ -393,6 +477,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
       parsedSections = parsed.sections;
     } catch (err) {
       console.warn('Failed to parse uploaded document:', err);
+    } finally {
+      setIsParsingVault(false);
     }
 
     setNewVaultItem((prev) => ({
@@ -401,6 +487,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
       title: prev.title || cleanTitle,
       extracted_text: parsedText,
       extracted_sections: parsedSections,
+      notes: prev.notes || (parsedSections.length > 0 ? `Deposited master source file (${file.name}) with ${parsedSections.length} parsed section(s).` : ''),
     }));
 
     const reader = new FileReader();
@@ -408,6 +495,24 @@ export const QmsDocumentControl: React.FC<Props> = ({
       setVaultFileDataUrl(reader.result as string);
     };
     reader.readAsDataURL(file);
+  };
+
+  // Handler for Tier 1 direct Controlled PDF upload
+  const handleTier1FileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setTier1File(file);
+    setIsParsingTier1(true);
+    try {
+      const parsed = await parseUploadedDocument(file);
+      setTier1ExtractedText(parsed.rawText);
+      setTier1ExtractedSections(parsed.sections);
+    } catch (err) {
+      console.warn('Failed to parse Tier 1 document:', err);
+    } finally {
+      setIsParsingTier1(false);
+    }
   };
 
   // Create native source vault deposit
@@ -773,9 +878,14 @@ export const QmsDocumentControl: React.FC<Props> = ({
                       <span className="text-[10px] text-slate-400">{item.revision}</span>
                     </td>
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {getFileTypeIcon(item.file_type)}
                         <span className="font-mono text-slate-200 font-semibold">{item.file_name}</span>
+                        {item.extracted_sections && item.extracted_sections.length > 0 && (
+                          <span className="text-[9px] font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                            ✓ {item.extracted_sections.length} Secs
+                          </span>
+                        )}
                       </div>
                       {item.notes && <p className="text-[11px] text-slate-400 mt-0.5">{item.notes}</p>}
                     </td>
@@ -842,6 +952,9 @@ export const QmsDocumentControl: React.FC<Props> = ({
                             owner: item.uploaded_by,
                             effective_date: item.uploaded_at,
                             next_review_date: new Date(Date.now() + 86400000 * 365).toISOString().slice(0, 10),
+                            description: item.notes,
+                            extracted_text: item.extracted_text,
+                            extracted_sections: item.extracted_sections,
                           })}
                           className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium border border-slate-700 flex items-center gap-1"
                           title="Generate and Download Official Controlled PDF"
@@ -1131,6 +1244,24 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 </div>
               </div>
 
+              <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/20 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-emerald-400">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>
+                    {promotingDoc.extracted_sections && promotingDoc.extracted_sections.length > 0
+                      ? `${promotingDoc.extracted_sections.length} structured sections ready to compile into PDF`
+                      : promotingDoc.extracted_text
+                      ? 'Extracted text content ready to compile into PDF'
+                      : 'Standard ISO 9001 template sections will be compiled'}
+                  </span>
+                </div>
+                {promotingDoc.extracted_sections && (
+                  <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800">
+                    {promotingDoc.extracted_sections.length} sections
+                  </span>
+                )}
+              </div>
+
               <div>
                 <label className="text-slate-300 block mb-1 font-medium">Approving Authority (QA Executive)</label>
                 <input
@@ -1249,12 +1380,50 @@ export const QmsDocumentControl: React.FC<Props> = ({
                       onClick={() => {
                         setSelectedDraftFile(null);
                         setDraftFileDataUrl(null);
+                        setShowDraftSectionPreview(false);
                       }}
                       className="text-slate-400 hover:text-rose-400 p-1 rounded"
                       title="Remove selected file"
                     >
                       <X className="w-4 h-4" />
                     </button>
+                  </div>
+                )}
+
+                {isParsingDraft && (
+                  <div className="mt-2 flex items-center gap-2 p-2.5 rounded-lg bg-purple-950/30 border border-purple-500/30 text-purple-300 text-xs">
+                    <Loader2 className="w-4 h-4 animate-spin text-purple-400 shrink-0" />
+                    <span>Parsing Word / Excel document and extracting structured sections...</span>
+                  </div>
+                )}
+
+                {newWorkingDoc.extracted_sections && newWorkingDoc.extracted_sections.length > 0 && !isParsingDraft && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/30 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-emerald-400 font-semibold text-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>✓ Extracted {newWorkingDoc.extracted_sections.length} structured section(s)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowDraftSectionPreview(!showDraftSectionPreview)}
+                        className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-0.5 font-mono"
+                      >
+                        {showDraftSectionPreview ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        {showDraftSectionPreview ? 'Hide' : 'Preview'}
+                      </button>
+                    </div>
+
+                    {showDraftSectionPreview && (
+                      <div className="max-h-36 overflow-y-auto space-y-1.5 bg-slate-950 p-2 rounded border border-slate-800 text-[11px] font-mono text-slate-300">
+                        {newWorkingDoc.extracted_sections.map((sec, idx) => (
+                          <div key={idx} className="border-b border-slate-800/80 pb-1 last:border-0 last:pb-0">
+                            <strong className="text-white block font-semibold">{sec.num ? `${sec.num} ` : ''}{sec.title}</strong>
+                            <p className="text-slate-400 line-clamp-2">{sec.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1337,9 +1506,17 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 font-semibold shadow-lg shadow-purple-500/20"
+                  disabled={isParsingDraft}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 font-semibold shadow-lg shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
-                  Create Working Draft
+                  {isParsingDraft ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Parsing File...</span>
+                    </>
+                  ) : (
+                    <span>Create Working Draft</span>
+                  )}
                 </button>
               </div>
             </form>
@@ -1401,12 +1578,50 @@ export const QmsDocumentControl: React.FC<Props> = ({
                       onClick={() => {
                         setSelectedVaultFile(null);
                         setVaultFileDataUrl(null);
+                        setShowVaultSectionPreview(false);
                       }}
                       className="text-slate-400 hover:text-rose-400 p-1 rounded"
                       title="Remove selected file"
                     >
                       <X className="w-4 h-4" />
                     </button>
+                  </div>
+                )}
+
+                {isParsingVault && (
+                  <div className="mt-2 flex items-center gap-2 p-2.5 rounded-lg bg-amber-950/30 border border-amber-500/30 text-amber-300 text-xs">
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-400 shrink-0" />
+                    <span>Parsing Master Word / Excel document and extracting structured sections...</span>
+                  </div>
+                )}
+
+                {newVaultItem.extracted_sections && newVaultItem.extracted_sections.length > 0 && !isParsingVault && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/30 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-emerald-400 font-semibold text-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>✓ Extracted {newVaultItem.extracted_sections.length} structured section(s)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowVaultSectionPreview(!showVaultSectionPreview)}
+                        className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-0.5 font-mono"
+                      >
+                        {showVaultSectionPreview ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        {showVaultSectionPreview ? 'Hide' : 'Preview'}
+                      </button>
+                    </div>
+
+                    {showVaultSectionPreview && (
+                      <div className="max-h-36 overflow-y-auto space-y-1.5 bg-slate-950 p-2 rounded border border-slate-800 text-[11px] font-mono text-slate-300">
+                        {newVaultItem.extracted_sections.map((sec, idx) => (
+                          <div key={idx} className="border-b border-slate-800/80 pb-1 last:border-0 last:pb-0">
+                            <strong className="text-white block font-semibold">{sec.num ? `${sec.num} ` : ''}{sec.title}</strong>
+                            <p className="text-slate-400 line-clamp-2">{sec.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1468,9 +1683,17 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 font-semibold shadow-lg shadow-amber-500/20"
+                  disabled={isParsingVault}
+                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 font-semibold shadow-lg shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
-                  Deposit to Vault
+                  {isParsingVault ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Parsing File...</span>
+                    </>
+                  ) : (
+                    <span>Deposit to Vault</span>
+                  )}
                 </button>
               </div>
             </form>
@@ -1496,28 +1719,127 @@ export const QmsDocumentControl: React.FC<Props> = ({
               e.preventDefault();
               const formEl = e.currentTarget;
               const formData = new FormData(formEl);
+              const docNum = formData.get('doc_number') as string;
+              const docTitle = formData.get('title') as string;
+              const docRev = (formData.get('current_revision') as string) || 'Rev A';
+              const docOwner = formData.get('owner') as string;
+              const docDesc = formData.get('description') as string;
+              const category = formData.get('category') as DocumentCategory;
+              const department = formData.get('department') as string;
+              const effectiveDate = formData.get('effective_date') as string;
+              const nextReviewDate = formData.get('next_review_date') as string;
+
               await onAddDocument({
-                doc_number: formData.get('doc_number') as string,
-                title: formData.get('title') as string,
-                category: formData.get('category') as DocumentCategory,
-                department: formData.get('department') as string,
-                current_revision: formData.get('current_revision') as string,
+                doc_number: docNum,
+                title: docTitle,
+                category,
+                department,
+                current_revision: docRev,
                 status: 'APPROVED',
-                owner: formData.get('owner') as string,
-                effective_date: formData.get('effective_date') as string,
-                next_review_date: formData.get('next_review_date') as string,
-                description: formData.get('description') as string,
-                pdf_file_name: `${formData.get('doc_number')}_CONTROLLED.pdf`,
+                owner: docOwner,
+                effective_date: effectiveDate,
+                next_review_date: nextReviewDate,
+                description: docDesc,
+                extracted_text: tier1ExtractedText,
+                extracted_sections: tier1ExtractedSections,
+                pdf_file_name: `${docNum}_${docRev.replace(/\s+/g, '')}_CONTROLLED.pdf`,
               });
+
+              // Automatically trigger official Controlled PDF download
+              downloadControlledDocumentPdf(
+                {
+                  id: `doc-${Date.now()}`,
+                  doc_number: docNum,
+                  title: docTitle,
+                  category,
+                  department,
+                  current_revision: docRev,
+                  status: 'APPROVED',
+                  owner: docOwner,
+                  effective_date: effectiveDate,
+                  next_review_date: nextReviewDate,
+                  description: docDesc,
+                  extracted_text: tier1ExtractedText,
+                  extracted_sections: tier1ExtractedSections,
+                },
+                docOwner,
+                docDesc || 'Initial release under ISO 9001:2015 Tier-1 Document Control'
+              );
+
               setIsAddDocModalOpen(false);
+              setTier1File(null);
+              setTier1ExtractedText(null);
+              setTier1ExtractedSections(null);
             }} className="space-y-4 text-xs">
+              {/* Optional Word / Excel Document Upload */}
+              <div>
+                <label className="text-slate-300 block mb-1 font-medium">
+                  Attach Source Document (.docx, .xlsx, .txt) <span className="text-slate-500 font-normal">(Optional)</span>
+                </label>
+                {!tier1File ? (
+                  <label className="border-2 border-dashed border-slate-700 hover:border-blue-500/60 bg-slate-950/60 hover:bg-blue-950/10 rounded-xl p-3.5 flex flex-col items-center justify-center cursor-pointer transition-all group">
+                    <input
+                      type="file"
+                      accept=".docx,.doc,.xlsx,.xls,.dwg,.dxf,.pptx,.pdf,.txt,.md"
+                      onChange={handleTier1FileChange}
+                      className="hidden"
+                    />
+                    <UploadCloud className="w-6 h-6 text-blue-400 group-hover:scale-110 transition-transform mb-1.5" />
+                    <span className="text-xs font-semibold text-slate-200">
+                      Upload Word (.docx) or Excel (.xlsx) to embed into PDF
+                    </span>
+                    <span className="text-[10px] text-slate-400 mt-0.5 text-center">
+                      Auto-extracts headings and paragraphs for multi-page controlled release
+                    </span>
+                  </label>
+                ) : (
+                  <div className="bg-slate-950 border border-blue-500/30 rounded-xl p-2.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                        {getFileTypeIcon(tier1File.name.split('.').pop() || '')}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-white text-xs">{tier1File.name}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          {(tier1File.size / 1024).toFixed(1)} KB • {tier1ExtractedSections?.length || 0} sections parsed
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTier1File(null);
+                        setTier1ExtractedText(null);
+                        setTier1ExtractedSections(null);
+                      }}
+                      className="text-slate-400 hover:text-rose-400 p-1 rounded"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {isParsingTier1 && (
+                  <div className="mt-2 flex items-center gap-2 p-2 rounded-lg bg-blue-950/30 border border-blue-500/30 text-blue-300 text-xs">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                    <span>Extracting sections and paragraphs from document...</span>
+                  </div>
+                )}
+                {tier1ExtractedSections && tier1ExtractedSections.length > 0 && !isParsingTier1 && (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-emerald-400 font-semibold text-[11px]">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>✓ Parsed {tier1ExtractedSections.length} sections ready to compile into PDF</span>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-slate-300 block mb-1 font-medium">Doc Number</label>
                   <input
                     name="doc_number"
                     type="text"
-                    defaultValue="SOP-QA-0"
+                    defaultValue="SOP-QA-001"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                     required
                   />
@@ -1605,9 +1927,17 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 font-semibold shadow-lg shadow-blue-500/20"
+                  disabled={isParsingTier1}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 font-semibold shadow-lg shadow-blue-500/20 disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  Release to Controlled Register
+                  {isParsingTier1 ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Parsing Document...</span>
+                    </>
+                  ) : (
+                    <span>Release & Download Controlled PDF</span>
+                  )}
                 </button>
               </div>
             </form>

@@ -262,9 +262,33 @@ export function generateControlledDocumentPdf(
     const paragraphs = sec.content.split(/\n+/).map(p => p.trim()).filter(Boolean);
 
     for (const para of paragraphs) {
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(7.5);
-      pdf.setTextColor(51, 65, 85); // slate-700
+      const isDivider = para.startsWith('---') && para.endsWith('---');
+      const isTableLine = para.includes(' | ') || para.startsWith('|');
+
+      if (isDivider) {
+        if (y > bottomThreshold - 6) {
+          pdf.addPage();
+          drawPageBorder();
+          drawRunningHeader();
+          y = margin + 17;
+        }
+        pdf.setDrawColor(203, 213, 225);
+        pdf.setLineWidth(0.2);
+        pdf.line(margin + 4, y, margin + contentWidth - 4, y);
+        y += 3;
+        continue;
+      }
+
+      if (isTableLine) {
+        pdf.setFont('courier', 'normal');
+        pdf.setFontSize(6.8);
+        pdf.setTextColor(30, 41, 59); // slate-800
+      } else {
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(51, 65, 85); // slate-700
+      }
+
       const wrappedLines: string[] = pdf.splitTextToSize(para, contentWidth - 8);
 
       for (let i = 0; i < wrappedLines.length; i++) {
@@ -273,16 +297,22 @@ export function generateControlledDocumentPdf(
           drawPageBorder();
           drawRunningHeader();
           y = margin + 17;
-          pdf.setFont('helvetica', 'normal');
-          pdf.setFontSize(7.5);
-          pdf.setTextColor(51, 65, 85);
+          if (isTableLine) {
+            pdf.setFont('courier', 'normal');
+            pdf.setFontSize(6.8);
+            pdf.setTextColor(30, 41, 59);
+          } else {
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(7.5);
+            pdf.setTextColor(51, 65, 85);
+          }
         }
         pdf.text(wrappedLines[i], margin + 4, y);
         y += 3.8;
       }
-      y += 2.5; // space between paragraphs
+      y += isTableLine ? 1.2 : 2.5; // tighter spacing for table rows
     }
-    y += 3; // space after section
+    y += 3.5; // space after section
   }
 
   // --- FINAL PAGE: QA APPROVAL AUTHENTICATION BOX ---

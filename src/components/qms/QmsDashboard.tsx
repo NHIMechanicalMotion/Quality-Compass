@@ -353,7 +353,12 @@ export const QmsDashboard: React.FC<Props> = ({
   const handleAddDocument = async (doc: Partial<ControlledDocument>) => {
     try {
       const created = await createControlledDocument(doc);
-      setDocuments((prev) => [created, ...prev]);
+      const merged: ControlledDocument = {
+        ...created,
+        extracted_text: doc.extracted_text || created.extracted_text || null,
+        extracted_sections: doc.extracted_sections || created.extracted_sections || null,
+      };
+      setDocuments((prev) => [merged, ...prev]);
     } catch (err) {
       console.error(err);
     }
