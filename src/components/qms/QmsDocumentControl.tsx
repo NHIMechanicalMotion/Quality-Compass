@@ -21,6 +21,7 @@ import type {
   SourceVaultItem,
   WorkingDocument
 } from '../../types/qms';
+import { downloadControlledDocumentPdf } from '../../services/controlledPdfGenerator';
 
 interface Props {
   documents: ControlledDocument[];
@@ -143,6 +144,30 @@ export const QmsDocumentControl: React.FC<Props> = ({
     // 3. Remove from Working Documents
     setWorkingDocs(prev => prev.filter(w => w.id !== promotingDoc.id));
     setPromotingDoc(null);
+  };
+
+  // Direct promotion from Tier 2 Source File Vault -> Tier 1 Controlled PDF
+  const handlePromoteFromVault = (vaultItem: SourceVaultItem) => {
+    const existingDoc = documents.find(d => d.doc_number === vaultItem.doc_number);
+    const doc: WorkingDocument = {
+      id: `work-vault-${vaultItem.id}`,
+      doc_number: vaultItem.doc_number,
+      title: vaultItem.title,
+      target_revision: vaultItem.revision || 'Rev A',
+      category: existingDoc?.category || 'SOP',
+      department: existingDoc?.department || 'Quality Assurance',
+      author: vaultItem.uploaded_by || existingDoc?.owner || 'Quality Engineering',
+      stage: 'PENDING_APPROVAL',
+      source_file_name: vaultItem.file_name,
+      source_file_type: vaultItem.file_type,
+      source_vault_ref: vaultItem.id,
+      change_summary: vaultItem.notes || `Promoting checked-in master source file (${vaultItem.file_name}) to released Controlled PDF.`,
+      created_at: vaultItem.uploaded_at || new Date().toISOString().slice(0, 10),
+      updated_at: new Date().toISOString().slice(0, 10),
+    };
+    setApproverName(existingDoc?.owner || 'VP Quality Assurance');
+    setApprovalNotes(`Official release and watermark compilation from source vault item ${vaultItem.file_name}.`);
+    setPromotingDoc(doc);
   };
 
   // Check out source file from vault
@@ -392,6 +417,14 @@ export const QmsDocumentControl: React.FC<Props> = ({
                                 <Eye className="w-3.5 h-3.5" /> View PDF
                               </button>
 
+                              <button
+                                onClick={() => downloadControlledDocumentPdf(doc)}
+                                title="Download Official ISO 9001 Controlled PDF"
+                                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-medium flex items-center gap-1 border border-slate-700 transition-colors"
+                              >
+                                <Download className="w-3 h-3 text-emerald-400" /> PDF
+                              </button>
+
                               {vaultMatch && (
                                 <button
                                   onClick={() => setActiveTier('SOURCE_VAULT')}
@@ -489,11 +522,20 @@ export const QmsDocumentControl: React.FC<Props> = ({
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
+                          onClick={() => handlePromoteFromVault(item)}
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow"
+                          title="Convert and promote this source file into an approved Tier-1 Controlled PDF"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Promote to Controlled PDF</span>
+                        </button>
+
+                        <button
                           onClick={() => handleToggleVaultCheckout(item.id)}
                           className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors ${
                             item.is_checked_out
-                              ? 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                              : 'bg-amber-600 hover:bg-amber-500 text-white'
+                              ? 'bg-amber-600/20 text-amber-300 border border-amber-500/40 hover:bg-amber-600/30'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
                           }`}
                         >
                           <Lock className="w-3.5 h-3.5" />
@@ -501,10 +543,22 @@ export const QmsDocumentControl: React.FC<Props> = ({
                         </button>
 
                         <button
-                          onClick={() => alert(`Downloading master native file: ${item.file_name}`)}
+                          onClick={() => downloadControlledDocumentPdf({
+                            id: item.document_id,
+                            doc_number: item.doc_number,
+                            title: item.title,
+                            category: 'SOP',
+                            department: 'Quality Assurance',
+                            current_revision: item.revision,
+                            status: 'APPROVED',
+                            owner: item.uploaded_by,
+                            effective_date: item.uploaded_at,
+                            next_review_date: new Date(Date.now() + 86400000 * 365).toISOString().slice(0, 10),
+                          })}
                           className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium border border-slate-700 flex items-center gap-1"
+                          title="Generate and Download Official Controlled PDF"
                         >
-                          <Download className="w-3.5 h-3.5" /> Download
+                          <Download className="w-3.5 h-3.5 text-blue-400" /> Export PDF
                         </button>
                       </div>
                     </td>
@@ -701,7 +755,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
                   Close
                 </button>
                 <button
-                  onClick={() => alert(`Downloading controlled PDF: ${viewingPdfDoc.doc_number}_CONTROLLED.pdf`)}
+                  onClick={() => downloadControlledDocumentPdf(viewingPdfDoc)}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow"
                 >
                   <Download className="w-3.5 h-3.5" /> Download Controlled PDF
@@ -764,20 +818,35 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 <div>✓ Removes active draft from Tier 3 Working Documents.</div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+              <div className="flex justify-between items-center gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setPromotingDoc(null)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 font-semibold"
+                  onClick={() => {
+                    if (promotingDoc) {
+                      downloadControlledDocumentPdf(promotingDoc, approverName || 'Authorized Signer', approvalNotes);
+                    }
+                  }}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition-colors"
+                  title="Preview the compiled ISO 9001 controlled PDF with watermarks and approval stamps"
                 >
-                  Cancel
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Preview PDF</span>
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 font-semibold shadow-lg shadow-emerald-500/20 flex items-center gap-1.5"
-                >
-                  <CheckCircle2 className="w-4 h-4" /> Authorize & Release Controlled PDF
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPromotingDoc(null)}
+                    className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 font-semibold shadow-lg shadow-emerald-500/20 flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Authorize & Release Controlled PDF
+                  </button>
+                </div>
               </div>
             </form>
           </div>
