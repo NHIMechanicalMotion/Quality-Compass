@@ -1,5 +1,6 @@
 import mammoth from 'mammoth';
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 
 export interface ParsedDocSection {
   num?: string;
@@ -167,6 +168,44 @@ function convertHtmlToStructuredMarkdown(html: string): string {
 }
 
 /**
+ * Extracts text from Word text boxes (<w:txbxContent>) and drawing shapes (<a:t>)
+ * that are otherwise omitted by default by Mammoth.
+ */
+async function extractTextBoxesFromDocx(arrayBuffer: ArrayBuffer): Promise<string[]> {
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const docXmlFile = zip.file('word/document.xml');
+    if (!docXmlFile) return [];
+    const xml = await docXmlFile.async('text');
+
+    const textBoxTexts: string[] = [];
+
+    // 1. Text boxes (<w:txbxContent>...</w:txbxContent>)
+    const txbxMatches = xml.match(/<w:txbxContent[^>]*>([\s\S]*?)<\/w:txbxContent>/gi) || [];
+    for (const txbx of txbxMatches) {
+      const textMatches = txbx.match(/<w:t[^>]*>([^<]+)<\/w:t>/gi) || [];
+      const boxText = textMatches.map((m) => m.replace(/<[^>]+>/g, '')).join(' ').trim();
+      if (boxText && !textBoxTexts.includes(boxText)) {
+        textBoxTexts.push(boxText);
+      }
+    }
+
+    // 2. DrawingML text shapes (<a:t>...</a:t>)
+    const drawingTextMatches = xml.match(/<a:t[^>]*>([^<]+)<\/a:t>/gi) || [];
+    for (const dt of drawingTextMatches) {
+      const cleanDt = dt.replace(/<[^>]+>/g, '').trim();
+      if (cleanDt && !textBoxTexts.includes(cleanDt)) {
+        textBoxTexts.push(cleanDt);
+      }
+    }
+
+    return textBoxTexts;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Parses modern Word .docx documents via mammoth with clean text extraction and HTML table support.
  */
 async function parseDocxFile(file: File): Promise<ParsedDocResult> {
@@ -177,14 +216,25 @@ async function parseDocxFile(file: File): Promise<ParsedDocResult> {
   let html = '';
 
   try {
-    const [textResult, mdResult, htmlResult] = await Promise.all([
+    const [textResult, mdResult, htmlResult, textBoxes] = await Promise.all([
       mammoth.extractRawText({ arrayBuffer }),
       mammoth.convertToMarkdown({ arrayBuffer }).catch(() => ({ value: '' })),
       mammoth.convertToHtml({ arrayBuffer }).catch(() => ({ value: '' })),
+      extractTextBoxesFromDocx(arrayBuffer),
     ]);
     rawText = textResult.value || '';
     markdown = mdResult.value || '';
     html = htmlResult.value || '';
+
+    // If text boxes or drawing text were found that were missed by mammoth, append them
+    if (textBoxes.length > 0) {
+      const missingBoxes = textBoxes.filter((b) => !rawText.includes(b));
+      if (missingBoxes.length > 0) {
+        rawText += '\n\n' + missingBoxes.join('\n\n');
+        if (markdown) markdown += '\n\n' + missingBoxes.join('\n\n');
+        if (html) html += '\n\n' + missingBoxes.map((b) => `<p>${b}</p>`).join('\n');
+      }
+    }
   } catch (mammothErr) {
     console.warn('Mammoth extraction failed, falling back to binary scan:', mammothErr);
     rawText = extractRawTextFromBinary(arrayBuffer);
@@ -197,15 +247,12 @@ async function parseDocxFile(file: File): Promise<ParsedDocResult> {
     markdown = rawText;
   }
 
-  // If HTML conversion produced tables, use HTML structured markdown for superior table fidelity
-  let structuredMd = '';
-  if (html && html.includes('<table')) {
-    structuredMd = convertHtmlToStructuredMarkdown(html);
-  }
+  // Always prefer convertHtmlToStructuredMarkdown if HTML exists
+  const structuredMd = html ? convertHtmlToStructuredMarkdown(html) : '';
 
   // Strip all markdown backslash escaping (\-, \., \(, \)) so text is completely natural
   const cleanRaw = rawText.replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1');
-  const cleanMd = (structuredMd || markdown)
+  const cleanMd = (structuredMd || markdown || cleanRaw)
     .replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1');
@@ -389,11 +436,6 @@ export function extractSectionsFromText(rawText: string, markdown: string): Pars
   // 3. "ARTICLE 1: SCOPE", "CLAUSE 1.0"
   // 4. "I. PURPOSE", "II. SCOPE", "IV. PROCEDURE"
   // 5. Markdown "# Heading", "## Heading"
-  // 6. Standalone uppercase titles: "PURPOSE & APPLICABILITY", "ROLES & RESPONSIBILITIES"
-  const numberedHeadingRegex = /^(\d+(\.\d+)*)\.?\s*[:\-–]?\s*([A-Za-z].*)$/;
-  const sectionPrefixRegex = /^(SECTION|ARTICLE|CLAUSE|STEP)\s*(\d+(\.\d+)*|[A-Z])\.?\s*[:\-–]?\s*(.*)$/i;
-  const romanNumeralRegex = /^([IVXLCDM]+)\.\s*([A-Za-z].*)$/i;
-  const mdHeadingRegex = /^#{1,4}\s*(.*)$/;
   const knownSopTitles = /^(PURPOSE|SCOPE|RESPONSIBILITIES|ROLES|DEFINITIONS|PROCEDURE|WORK INSTRUCTION|INSPECTION CRITERIA|EQUIPMENT|SAFETY|REFERENCES|DOCUMENT REVISION HISTORY|REVISION HISTORY|REVISIONS|ACCEPTANCE CRITERIA|RECORDS|APPROVAL)\b/i;
 
   const joinContentLines = (linesToJoin: string[], title: string): string => {
@@ -426,52 +468,74 @@ export function extractSectionsFromText(rawText: string, markdown: string): Pars
     return blocks.join('\n\n');
   };
 
+  let lastRootNum = 0;
+
   const pushCurrentSection = () => {
-    if (currentContent.length > 0) {
+    if (currentContent.length > 0 || (currentNum !== undefined && currentTitle !== 'PURPOSE & OVERVIEW')) {
       const content = joinContentLines(currentContent, currentTitle);
-      if (content.trim()) {
-        sections.push({
-          num: currentNum,
-          title: currentTitle,
-          content,
-        });
-      }
+      sections.push({
+        num: currentNum,
+        title: currentTitle,
+        content: content.trim() || 'Refer to operational procedure sequence and attached specifications.',
+      });
       currentContent = [];
     }
   };
 
   for (const line of lines) {
-    const mdMatch = line.match(mdHeadingRegex);
-    const numMatch = line.match(numberedHeadingRegex);
-    const secPrefixMatch = line.match(sectionPrefixRegex);
-    const romanMatch = line.match(romanNumeralRegex);
-    const isStandaloneTitle = knownSopTitles.test(line) && line.length < 80;
+    const mdMatch = line.match(/^#{1,3}\s+(.*)$/);
+    const romanMatch = line.match(/^([IVXLCDM]+)\.\s*([A-Za-z\s&/,\-–]+)$/i);
+    const secPrefixMatch = line.match(/^(SECTION|ARTICLE|CLAUSE)\s*(\d{1,2})\.?\s*[:\-–]?\s*(.*)$/i);
+    const numMatch = line.match(/^(\d{1,2})(\.0?)?\s*[:\-–]?\s*([A-Za-z].*)$/);
 
-    if (mdMatch || numMatch || secPrefixMatch || romanMatch || isStandaloneTitle) {
+    let isHeading = false;
+    let newNum: string | undefined = undefined;
+    let newTitle = '';
+
+    if (mdMatch) {
+      const titleText = mdMatch[1].trim();
+      const innerNum = titleText.match(/^(\d{1,2})(\.0?)?\s*[:\-–]?\s*(.*)$/);
+      if (innerNum) {
+        newNum = innerNum[1];
+        newTitle = innerNum[3].trim().toUpperCase();
+      } else {
+        newNum = undefined;
+        newTitle = titleText.toUpperCase();
+      }
+      isHeading = true;
+    } else if (secPrefixMatch) {
+      newNum = secPrefixMatch[2];
+      newTitle = (secPrefixMatch[3] ? `${secPrefixMatch[1]} ${secPrefixMatch[2]}: ${secPrefixMatch[3]}` : `${secPrefixMatch[1]} ${secPrefixMatch[2]}`).toUpperCase();
+      isHeading = true;
+    } else if (romanMatch && romanMatch[2].length < 60 && !/[.?!]$/.test(line)) {
+      newNum = romanMatch[1].toUpperCase();
+      newTitle = romanMatch[2].trim().toUpperCase();
+      isHeading = true;
+    } else if (numMatch && line.length < 65 && !/[.?!]$/.test(line)) {
+      const numVal = parseInt(numMatch[1], 10);
+      const titleCandidate = numMatch[3].trim();
+      const isKnown = knownSopTitles.test(titleCandidate);
+      const isSequential = numVal === lastRootNum + 1;
+
+      // Only treat as root section heading if it is a known SOP title or strictly in forward sequence
+      // This prevents numbered procedure steps (e.g. "1. Verify packing slip...") from deleting Section 5!
+      if (isKnown || isSequential) {
+        newNum = String(numVal);
+        newTitle = titleCandidate.toUpperCase();
+        isHeading = true;
+      }
+    } else if (knownSopTitles.test(line) && line.length < 60 && !/[.?!]$/.test(line)) {
+      newNum = undefined;
+      newTitle = line.replace(/[:\-–]+$/, '').trim().toUpperCase();
+      isHeading = true;
+    }
+
+    if (isHeading) {
       pushCurrentSection();
-
-      if (mdMatch) {
-        const titleText = mdMatch[1].trim();
-        const innerNum = titleText.match(numberedHeadingRegex);
-        if (innerNum) {
-          currentNum = innerNum[1];
-          currentTitle = innerNum[3].trim().toUpperCase();
-        } else {
-          currentNum = undefined;
-          currentTitle = titleText.toUpperCase();
-        }
-      } else if (secPrefixMatch) {
-        currentNum = secPrefixMatch[2];
-        currentTitle = (secPrefixMatch[4] ? `${secPrefixMatch[1]} ${secPrefixMatch[2]}: ${secPrefixMatch[4]}` : `${secPrefixMatch[1]} ${secPrefixMatch[2]}`).toUpperCase();
-      } else if (numMatch) {
-        currentNum = numMatch[1];
-        currentTitle = numMatch[3].trim().toUpperCase();
-      } else if (romanMatch) {
-        currentNum = romanMatch[1].toUpperCase();
-        currentTitle = romanMatch[2].trim().toUpperCase();
-      } else if (isStandaloneTitle) {
-        currentNum = undefined;
-        currentTitle = line.replace(/[:\-–]+$/, '').trim().toUpperCase();
+      currentNum = newNum;
+      currentTitle = newTitle;
+      if (newNum && !isNaN(parseInt(newNum, 10))) {
+        lastRootNum = parseInt(newNum, 10);
       }
     } else {
       currentContent.push(line);
