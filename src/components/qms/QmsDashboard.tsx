@@ -31,6 +31,7 @@ import {
   createControlledDocument, 
   addDocumentRevision, 
   updateDocumentStatus,
+  updateControlledDocumentFile,
   deleteControlledDocument,
   fetchQmsAudits, 
   createQmsAudit, 
@@ -412,6 +413,27 @@ export const QmsDashboard: React.FC<Props> = ({
     }
   };
 
+  const handleUpdateDocumentFile = async (docId: string, fileUrl: string, fileName?: string) => {
+    try {
+      await updateControlledDocumentFile(docId, fileUrl, fileName);
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === docId
+            ? {
+                ...d,
+                file_url: fileUrl,
+                pdf_file_url: fileUrl,
+                pdf_file_name: fileName || d.pdf_file_name,
+              }
+            : d
+        )
+      );
+    } catch (err) {
+      console.error('Failed to update document file:', err);
+      throw err;
+    }
+  };
+
   // Odoo Handlers
   const handleRefreshOdoo = async () => {
     setIsSyncing(true);
@@ -616,6 +638,7 @@ export const QmsDashboard: React.FC<Props> = ({
                 onAddRevision={handleAddDocumentRevision}
                 onUpdateStatus={handleUpdateDocStatus}
                 onDeleteDocument={handleDeleteDocument}
+                onUpdateDocumentFile={handleUpdateDocumentFile}
               />
             )}
           </>

@@ -23,6 +23,17 @@ export interface ParsedDocResult {
 export async function parseUploadedDocument(file: File): Promise<ParsedDocResult> {
   const ext = file.name.split('.').pop()?.toLowerCase();
 
+  // If user uploaded an actual PDF, do not attempt text extraction / binary parsing
+  if (ext === 'pdf' || file.type === 'application/pdf') {
+    return {
+      rawText: '',
+      markdown: '',
+      sections: [],
+      wordCount: 0,
+      charCount: 0,
+    };
+  }
+
   try {
     if (ext === 'docx') {
       return await parseDocxFile(file);
@@ -53,7 +64,7 @@ export async function parseUploadedDocument(file: File): Promise<ParsedDocResult
 }
 
 /**
- * Parses modern Word .docx documents via mammoth with raw text and markdown extraction.
+ * Parses modern Word .docx documents via mammoth with clean text extraction.
  */
 async function parseDocxFile(file: File): Promise<ParsedDocResult> {
   const arrayBuffer = await file.arrayBuffer();
@@ -80,15 +91,22 @@ async function parseDocxFile(file: File): Promise<ParsedDocResult> {
     markdown = rawText;
   }
 
-  const sections = extractSectionsFromText(rawText, markdown);
-  const wordCount = rawText.trim() ? rawText.trim().split(/\s+/).length : 0;
+  // Strip all markdown backslash escaping (\-, \., \(, \)) so text is completely natural
+  const cleanRaw = rawText.replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1');
+  const cleanMd = markdown
+    .replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1');
+
+  const sections = extractSectionsFromText(cleanRaw, cleanMd);
+  const wordCount = cleanRaw.trim() ? cleanRaw.trim().split(/\s+/).length : 0;
 
   return {
-    rawText,
-    markdown,
+    rawText: cleanRaw,
+    markdown: cleanMd,
     sections,
     wordCount,
-    charCount: rawText.length,
+    charCount: cleanRaw.length,
   };
 }
 
@@ -188,6 +206,12 @@ async function parseLegacyDocFile(file: File): Promise<ParsedDocResult> {
  */
 function extractRawTextFromBinary(arrayBuffer: ArrayBuffer): string {
   const bytes = new Uint8Array(arrayBuffer);
+
+  // If file begins with %PDF-, it is an existing PDF binary — do not extract raw PostScript bytecode as text!
+  if (bytes.length >= 5 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2D) {
+    return '';
+  }
+
   const runs: string[] = [];
   let currentRun = '';
 
@@ -237,7 +261,11 @@ function extractRawTextFromBinary(arrayBuffer: ArrayBuffer): string {
 export function extractSectionsFromText(rawText: string, markdown: string): ParsedDocSection[] {
   const sections: ParsedDocSection[] = [];
   const source = markdown && markdown.trim().length > 0 ? markdown : rawText;
-  const lines = source.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const cleanSource = source
+    .replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1');
+  const lines = cleanSource.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
   let currentTitle = 'PURPOSE & OVERVIEW';
   let currentNum: string | undefined = undefined;

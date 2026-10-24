@@ -261,7 +261,21 @@ export function generateControlledDocumentPdf(
     // Split content paragraphs
     const paragraphs = sec.content.split(/\n+/).map(p => p.trim()).filter(Boolean);
 
-    for (const para of paragraphs) {
+    for (const rawPara of paragraphs) {
+      // Clean up markdown escapes and bold markers
+      const para = rawPara
+        .replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1')
+        .replace(/__([^_]+)__/g, '$1')
+        .replace(/\*\*([^*]+)\*\*/g, '$1');
+
+      // Filter out any raw PDF / PostScript bytecode if present
+      if (/^(%PDF-|trailer|startxref|\d+\s+0\s+obj|endobj|stream|endstream|%%EOF|\/[A-Za-z0-9]+)/i.test(para)) {
+        continue;
+      }
+      if (/^\d+(\.\d+)?\s+\d+(\.\d+)?\s+(rg|RG|re|m|l|c|W|TL|Tf|Td|Tm|Tj)/.test(para)) {
+        continue;
+      }
+
       const isDivider = para.startsWith('---') && para.endsWith('---');
       const isTableLine = para.includes(' | ') || para.startsWith('|');
 
@@ -402,9 +416,28 @@ export function downloadControlledDocumentPdf(
   approverName?: string,
   approvalNotes?: string
 ): void {
-  const pdf = generateControlledDocumentPdf(doc, approverName, approvalNotes);
   const rev = 'current_revision' in doc ? doc.current_revision : (doc as WorkingDocument).target_revision || 'RevA';
   const cleanRev = rev.replace(/\s+/g, '');
-  const fileName = `${doc.doc_number}_${cleanRev}_CONTROLLED.pdf`;
+  const fileName = ('pdf_file_name' in doc && doc.pdf_file_name) || `${doc.doc_number}_${cleanRev}_CONTROLLED.pdf`;
+
+  // 1. If an actual PDF file is attached (e.g. uploaded official PDF exported from Word), download the true file!
+  const actualPdfUrl =
+    ('pdf_file_url' in doc && doc.pdf_file_url) ||
+    ('file_url' in doc && doc.file_url && (doc.file_url.startsWith('data:application/pdf') || doc.file_url.startsWith('http') || doc.file_url.startsWith('blob:'))
+      ? doc.file_url
+      : null);
+
+  if (actualPdfUrl) {
+    const link = document.createElement('a');
+    link.href = actualPdfUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return;
+  }
+
+  // 2. Otherwise compile official controlled PDF layout
+  const pdf = generateControlledDocumentPdf(doc, approverName, approvalNotes);
   pdf.save(fileName);
 }

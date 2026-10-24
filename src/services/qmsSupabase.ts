@@ -60,17 +60,23 @@ export async function fetchControlledDocuments(): Promise<ControlledDocument[]> 
       let extracted_text: string | null = null;
       let extracted_sections: Array<{ num?: string; title: string; content: string }> | null = null;
       let actualFileUrl: string | null = d.file_url;
+      let pdfFileName: string = `${d.doc_number}_CONTROLLED.pdf`;
 
-      if (d.file_url && typeof d.file_url === 'string' && d.file_url.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(d.file_url);
-          if (parsed && (parsed.sections || parsed.text)) {
-            extracted_text = parsed.text || null;
-            extracted_sections = parsed.sections || null;
-            actualFileUrl = parsed.url || null;
+      if (d.file_url && typeof d.file_url === 'string') {
+        if (d.file_url.startsWith('data:application/pdf') || d.file_url.startsWith('http') || d.file_url.startsWith('blob:')) {
+          actualFileUrl = d.file_url;
+        } else if (d.file_url.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(d.file_url);
+            if (parsed) {
+              extracted_text = parsed.text || null;
+              extracted_sections = parsed.sections || null;
+              actualFileUrl = parsed.url || null;
+              if (parsed.name) pdfFileName = parsed.name;
+            }
+          } catch {
+            // not JSON, keep as raw file_url
           }
-        } catch {
-          // not JSON, keep as raw file_url
         }
       }
 
@@ -84,6 +90,8 @@ export async function fetchControlledDocuments(): Promise<ControlledDocument[]> 
       return {
         ...d,
         file_url: actualFileUrl,
+        pdf_file_url: actualFileUrl,
+        pdf_file_name: pdfFileName,
         extracted_text,
         extracted_sections,
         revisions: revisionsByDoc[d.id] || [],
@@ -96,18 +104,18 @@ export async function fetchControlledDocuments(): Promise<ControlledDocument[]> 
 }
 
 export async function createControlledDocument(doc: Partial<ControlledDocument>): Promise<ControlledDocument> {
-  let fileUrlPayload = doc.file_url || null;
+  const actualUrl = doc.pdf_file_url || doc.file_url || null;
+  let fileUrlPayload: string | null = actualUrl;
 
-  if (doc.extracted_sections || doc.extracted_text) {
-    try {
-      fileUrlPayload = JSON.stringify({
-        url: doc.file_url || null,
-        text: doc.extracted_text || null,
-        sections: doc.extracted_sections || null,
-      });
-    } catch (e) {
-      console.warn('Could not serialize document sections into file_url:', e);
-    }
+  try {
+    fileUrlPayload = JSON.stringify({
+      url: actualUrl,
+      name: doc.pdf_file_name || `${doc.doc_number}_CONTROLLED.pdf`,
+      text: doc.extracted_text || null,
+      sections: doc.extracted_sections || null,
+    });
+  } catch (e) {
+    console.warn('Could not serialize document file_url:', e);
   }
 
   const { data, error } = await db
@@ -239,6 +247,36 @@ export async function updateControlledDocumentContent(
       const raw = localStorage.getItem('qc_controlled_docs_cache');
       const cache = raw ? JSON.parse(raw) : {};
       cache[documentId] = { text: extracted_text, sections: extracted_sections };
+      localStorage.setItem('qc_controlled_docs_cache', JSON.stringify(cache));
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export async function updateControlledDocumentFile(
+  documentId: string,
+  fileUrl: string,
+  fileName?: string
+): Promise<void> {
+  const payload = JSON.stringify({
+    url: fileUrl,
+    name: fileName || null,
+  });
+
+  const { error } = await db
+    .from('qms_documents')
+    .update({ file_url: payload, updated_at: new Date().toISOString() })
+    .eq('id', documentId);
+
+  if (error) console.error('Error updating document file in Supabase:', error);
+
+  // Update local cache
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = localStorage.getItem('qc_controlled_docs_cache');
+      const cache = raw ? JSON.parse(raw) : {};
+      cache[documentId] = { ...(cache[documentId] || {}), url: fileUrl, name: fileName };
       localStorage.setItem('qc_controlled_docs_cache', JSON.stringify(cache));
     }
   } catch {
