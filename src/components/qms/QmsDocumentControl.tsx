@@ -27,7 +27,7 @@ import type {
   SourceVaultItem,
   WorkingDocument
 } from '../../types/qms';
-import { downloadControlledDocumentPdf } from '../../services/controlledPdfGenerator';
+import { downloadControlledDocumentPdf, generateControlledDocumentPdf } from '../../services/controlledPdfGenerator';
 import { parseUploadedDocument } from '../../services/docParser';
 
 interface Props {
@@ -247,8 +247,26 @@ export const QmsDocumentControl: React.FC<Props> = ({
 
     const finalApprover = approverName.trim() || 'VP Quality Assurance';
     const finalNotes = approvalNotes.trim() || 'Official release and controlled watermark compilation.';
-    const finalPdfUrl = promotingPdfDataUrl || promotingDoc.file_data_url;
     const finalPdfName = promotingPdfFile ? promotingPdfFile.name : `${promotingDoc.doc_number}_${promotingDoc.target_revision.replace(/\s+/g, '')}_CONTROLLED.pdf`;
+
+    let finalPdfUrl = promotingPdfDataUrl;
+
+    // If an official PDF wasn't manually attached, compile the official ISO 9001 controlled PDF with header, metadata box, tables, watermark, and footer!
+    if (!finalPdfUrl) {
+      const compiled = generateControlledDocumentPdf(
+        {
+          ...promotingDoc,
+          status: 'APPROVED',
+          approved_by: finalApprover,
+          approved_at: new Date().toISOString().slice(0, 10),
+          effective_date: new Date().toISOString().slice(0, 10),
+          next_review_date: new Date(Date.now() + 86400000 * 365).toISOString().slice(0, 10),
+        },
+        finalApprover,
+        finalNotes
+      );
+      finalPdfUrl = compiled.output('datauristring');
+    }
 
     // 1. Add to Controlled Documents
     await onAddDocument({
@@ -1978,6 +1996,32 @@ export const QmsDocumentControl: React.FC<Props> = ({
               const isPdf = tier1File && tier1File.name.toLowerCase().endsWith('.pdf');
               const finalPdfName = tier1File ? tier1File.name : `${docNum}_${docRev.replace(/\s+/g, '')}_CONTROLLED.pdf`;
 
+              let finalPdfDataUrl = tier1FileDataUrl;
+
+              // If a Word doc or text was uploaded (not an existing PDF), compile the official ISO 9001 controlled PDF with header, metadata box, tables, watermark, and footer!
+              if (!isPdf) {
+                const compiledPdf = generateControlledDocumentPdf(
+                  {
+                    id: `doc-${Date.now()}`,
+                    doc_number: docNum,
+                    title: docTitle,
+                    category,
+                    department,
+                    current_revision: docRev,
+                    status: 'APPROVED',
+                    owner: docOwner,
+                    effective_date: effectiveDate,
+                    next_review_date: nextReviewDate,
+                    description: docDesc,
+                    extracted_text: tier1ExtractedText,
+                    extracted_sections: tier1ExtractedSections,
+                  },
+                  docOwner,
+                  docDesc || 'Initial release under ISO 9001:2015 Tier-1 Document Control'
+                );
+                finalPdfDataUrl = compiledPdf.output('datauristring');
+              }
+
               await onAddDocument({
                 doc_number: docNum,
                 title: docTitle,
@@ -1991,8 +2035,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 description: docDesc,
                 extracted_text: isPdf ? null : tier1ExtractedText,
                 extracted_sections: isPdf ? null : tier1ExtractedSections,
-                file_url: tier1FileDataUrl,
-                pdf_file_url: tier1FileDataUrl,
+                file_url: finalPdfDataUrl,
+                pdf_file_url: finalPdfDataUrl,
                 pdf_file_name: finalPdfName,
               });
 
@@ -2035,8 +2079,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
                   description: docDesc,
                   extracted_text: isPdf ? null : tier1ExtractedText,
                   extracted_sections: isPdf ? null : tier1ExtractedSections,
-                  file_url: tier1FileDataUrl,
-                  pdf_file_url: tier1FileDataUrl,
+                  file_url: finalPdfDataUrl,
+                  pdf_file_url: finalPdfDataUrl,
                   pdf_file_name: finalPdfName,
                 },
                 docOwner,

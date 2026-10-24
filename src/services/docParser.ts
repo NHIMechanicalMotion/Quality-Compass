@@ -64,21 +64,127 @@ export async function parseUploadedDocument(file: File): Promise<ParsedDocResult
 }
 
 /**
- * Parses modern Word .docx documents via mammoth with clean text extraction.
+ * Converts HTML from mammoth into structured markdown with table support.
+ * Turns <table> into standard markdown tables (| Col 1 | Col 2 |) so
+ * that table headers and cells are never collapsed into unaligned vertical runs.
+ */
+function convertHtmlToStructuredMarkdown(html: string): string {
+  if (!html || !html.trim()) return '';
+
+  // 1. Process <table> elements into markdown tables
+  const tableProcessed = html.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (_match, tableContent) => {
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    const rows: string[][] = [];
+    let rowMatch: RegExpExecArray | null;
+
+    while ((rowMatch = rowRegex.exec(tableContent)) !== null) {
+      const cellRegex = /<(?:th|td)[^>]*>([\s\S]*?)<\/(?:th|td)>/gi;
+      const cells: string[] = [];
+      let cellMatch: RegExpExecArray | null;
+
+      while ((cellMatch = cellRegex.exec(rowMatch[1])) !== null) {
+        const cleanCell = cellMatch[1]
+          .replace(/<[^>]+>/g, '')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/&lt;/gi, '<')
+          .replace(/&gt;/gi, '>')
+          .replace(/&quot;/gi, '"')
+          .replace(/&#39;/gi, "'")
+          .replace(/[\r\n]+/g, ' ')
+          .replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1')
+          .trim();
+        cells.push(cleanCell);
+      }
+      if (cells.length > 0) {
+        rows.push(cells);
+      }
+    }
+
+    if (rows.length === 0) return '';
+
+    // Normalize column count
+    const maxCols = Math.max(...rows.map((r) => r.length));
+    const mdLines: string[] = [];
+
+    rows.forEach((r, idx) => {
+      while (r.length < maxCols) r.push('');
+      const sanitizedCells = r.map((c) => c.replace(/\|/g, '-'));
+      mdLines.push(`| ${sanitizedCells.join(' | ')} |`);
+      if (idx === 0) {
+        mdLines.push(`| ${new Array(maxCols).fill('---').join(' | ')} |`);
+      }
+    });
+
+    return `\n\n${mdLines.join('\n')}\n\n`;
+  });
+
+  // 2. Headings
+  let processed = tableProcessed
+    .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '\n\n# $1\n\n')
+    .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '\n\n## $1\n\n')
+    .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '\n\n### $1\n\n')
+    .replace(/<h4[^>]*>([\s\S]*?)<\/h4>/gi, '\n\n#### $1\n\n')
+    .replace(/<h5[^>]*>([\s\S]*?)<\/h5>/gi, '\n\n##### $1\n\n')
+    .replace(/<h6[^>]*>([\s\S]*?)<\/h6>/gi, '\n\n###### $1\n\n');
+
+  // 3. Lists
+  processed = processed
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n- $1')
+    .replace(/<ul[^>]*>/gi, '\n')
+    .replace(/<\/ul>/gi, '\n')
+    .replace(/<ol[^>]*>/gi, '\n')
+    .replace(/<\/ol>/gi, '\n');
+
+  // 4. Paragraphs and line breaks
+  processed = processed
+    .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '\n\n$1\n\n')
+    .replace(/<br\s*\/?>/gi, '\n');
+
+  // 5. Strip remaining HTML tags
+  processed = processed.replace(/<[^>]+>/g, '');
+
+  // 6. Decode common HTML entities
+  processed = processed
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+
+  // 7. Strip markdown escapes & bold formatting
+  processed = processed
+    .replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1');
+
+  // 8. Normalize whitespace
+  return processed
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Parses modern Word .docx documents via mammoth with clean text extraction and HTML table support.
  */
 async function parseDocxFile(file: File): Promise<ParsedDocResult> {
   const arrayBuffer = await file.arrayBuffer();
 
   let rawText = '';
   let markdown = '';
+  let html = '';
 
   try {
-    const [textResult, mdResult] = await Promise.all([
+    const [textResult, mdResult, htmlResult] = await Promise.all([
       mammoth.extractRawText({ arrayBuffer }),
       mammoth.convertToMarkdown({ arrayBuffer }).catch(() => ({ value: '' })),
+      mammoth.convertToHtml({ arrayBuffer }).catch(() => ({ value: '' })),
     ]);
     rawText = textResult.value || '';
     markdown = mdResult.value || '';
+    html = htmlResult.value || '';
   } catch (mammothErr) {
     console.warn('Mammoth extraction failed, falling back to binary scan:', mammothErr);
     rawText = extractRawTextFromBinary(arrayBuffer);
@@ -91,9 +197,15 @@ async function parseDocxFile(file: File): Promise<ParsedDocResult> {
     markdown = rawText;
   }
 
+  // If HTML conversion produced tables, use HTML structured markdown for superior table fidelity
+  let structuredMd = '';
+  if (html && html.includes('<table')) {
+    structuredMd = convertHtmlToStructuredMarkdown(html);
+  }
+
   // Strip all markdown backslash escaping (\-, \., \(, \)) so text is completely natural
   const cleanRaw = rawText.replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1');
-  const cleanMd = markdown
+  const cleanMd = (structuredMd || markdown)
     .replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1');
@@ -282,15 +394,48 @@ export function extractSectionsFromText(rawText: string, markdown: string): Pars
   const sectionPrefixRegex = /^(SECTION|ARTICLE|CLAUSE|STEP)\s*(\d+(\.\d+)*|[A-Z])\.?\s*[:\-–]?\s*(.*)$/i;
   const romanNumeralRegex = /^([IVXLCDM]+)\.\s*([A-Za-z].*)$/i;
   const mdHeadingRegex = /^#{1,4}\s*(.*)$/;
-  const knownSopTitles = /^(PURPOSE|SCOPE|RESPONSIBILITIES|ROLES|DEFINITIONS|PROCEDURE|WORK INSTRUCTION|INSPECTION CRITERIA|EQUIPMENT|SAFETY|REFERENCES|DOCUMENT REVISION HISTORY|ACCEPTANCE CRITERIA|RECORDS|APPROVAL)\b/i;
+  const knownSopTitles = /^(PURPOSE|SCOPE|RESPONSIBILITIES|ROLES|DEFINITIONS|PROCEDURE|WORK INSTRUCTION|INSPECTION CRITERIA|EQUIPMENT|SAFETY|REFERENCES|DOCUMENT REVISION HISTORY|REVISION HISTORY|REVISIONS|ACCEPTANCE CRITERIA|RECORDS|APPROVAL)\b/i;
+
+  const joinContentLines = (linesToJoin: string[], title: string): string => {
+    // If this is the initial document overview block, filter out redundant metadata fields that already exist in the official header
+    const isOverview = title === 'PURPOSE & OVERVIEW' || title === 'DOCUMENT OVERVIEW';
+    const filteredLines = linesToJoin.filter((line) => {
+      if (!isOverview) return true;
+      const clean = line.replace(/^[|#*_\-\s]+|[|#*_\-\s]+$/g, '').trim();
+      return !/^(Document\s*Number|Doc\s*No|Doc\s*Number|Revision\s*Level|Revision|Effective\s*Date|Document\s*Owner|Document\s*Title|Doc\s*Title)[\s:|-]/i.test(clean);
+    });
+
+    const blocks: string[] = [];
+    let currentTableLines: string[] = [];
+
+    for (const line of filteredLines) {
+      if (line.startsWith('|')) {
+        currentTableLines.push(line);
+      } else {
+        if (currentTableLines.length > 0) {
+          blocks.push(currentTableLines.join('\n'));
+          currentTableLines = [];
+        }
+        blocks.push(line);
+      }
+    }
+    if (currentTableLines.length > 0) {
+      blocks.push(currentTableLines.join('\n'));
+    }
+
+    return blocks.join('\n\n');
+  };
 
   const pushCurrentSection = () => {
     if (currentContent.length > 0) {
-      sections.push({
-        num: currentNum,
-        title: currentTitle,
-        content: currentContent.join('\n\n'),
-      });
+      const content = joinContentLines(currentContent, currentTitle);
+      if (content.trim()) {
+        sections.push({
+          num: currentNum,
+          title: currentTitle,
+          content,
+        });
+      }
       currentContent = [];
     }
   };

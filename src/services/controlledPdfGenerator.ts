@@ -237,6 +237,133 @@ export function generateControlledDocumentPdf(
   // --- RENDER SECTIONS WITH DYNAMIC PAGINATION ---
   const bottomThreshold = pageHeight - margin - 28; // reserve space for bottom margin / signoff
 
+/**
+ * Renders an auditable multi-column table grid in jsPDF with borders, header styling,
+ * cell padding, automatic column width sizing, text wrapping, and pagination.
+ */
+function renderTableGrid(
+  pdf: jsPDF,
+  tableBlock: string,
+  startY: number,
+  contentWidth: number,
+  margin: number,
+  bottomThreshold: number,
+  drawPageBorder: () => void,
+  drawRunningHeader: () => void
+): number {
+  const lines = tableBlock.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const rows: string[][] = [];
+
+  for (const line of lines) {
+    if (!line.includes('|')) continue;
+    const rawCells = line.split('|').map(c => c.trim());
+    if (rawCells.length > 0 && rawCells[0] === '') rawCells.shift();
+    if (rawCells.length > 0 && rawCells[rawCells.length - 1] === '') rawCells.pop();
+    if (rawCells.length === 0) continue;
+    if (rawCells.every(c => /^[-:\s]+$/.test(c))) continue;
+    rows.push(rawCells);
+  }
+
+  if (rows.length === 0) return startY;
+
+  const numCols = Math.max(...rows.map(r => r.length));
+  if (numCols === 0) return startY;
+
+  rows.forEach(r => {
+    while (r.length < numCols) r.push('');
+  });
+
+  const tableWidth = contentWidth - 4;
+  const startX = margin + 2;
+
+  // Compute column widths based on max character length in each column
+  const colLengths = new Array(numCols).fill(0);
+  rows.forEach(r => {
+    r.forEach((cell, i) => {
+      if (cell.length > colLengths[i]) colLengths[i] = cell.length;
+    });
+  });
+
+  const totalLength = colLengths.reduce((sum, len) => sum + Math.max(len, 6), 0);
+  const colWidths = colLengths.map(len => {
+    const prop = Math.max(len, 6) / totalLength;
+    return Math.max(Math.floor(prop * tableWidth * 10) / 10, 16);
+  });
+
+  const currentTotal = colWidths.reduce((a, b) => a + b, 0);
+  colWidths[numCols - 1] += (tableWidth - currentTotal);
+
+  let currentY = startY;
+
+  const renderRow = (rowCells: string[], isHeader: boolean, rowIndex: number) => {
+    const wrappedCells: string[][] = [];
+    let maxLines = 1;
+
+    pdf.setFont('helvetica', isHeader ? 'bold' : 'normal');
+    pdf.setFontSize(isHeader ? 7 : 6.8);
+
+    rowCells.forEach((cell, i) => {
+      const availWidth = Math.max(colWidths[i] - 3, 10);
+      const cellTextLines: string[] = pdf.splitTextToSize(cell, availWidth);
+      wrappedCells.push(cellTextLines);
+      if (cellTextLines.length > maxLines) maxLines = cellTextLines.length;
+    });
+
+    const rowHeight = Math.max(maxLines * 3.4 + 2.8, 6.5);
+
+    if (currentY + rowHeight > bottomThreshold) {
+      pdf.addPage();
+      drawPageBorder();
+      drawRunningHeader();
+      currentY = margin + 17;
+
+      if (!isHeader && rows.length > 0) {
+        renderRow(rows[0], true, 0);
+      }
+    }
+
+    if (isHeader) {
+      pdf.setFillColor(241, 245, 249); // slate-100
+    } else if (rowIndex % 2 === 1) {
+      pdf.setFillColor(255, 255, 255); // white
+    } else {
+      pdf.setFillColor(248, 250, 252); // slate-50
+    }
+    pdf.rect(startX, currentY, tableWidth, rowHeight, 'F');
+
+    pdf.setDrawColor(203, 213, 225); // slate-300
+    pdf.setLineWidth(0.2);
+    pdf.rect(startX, currentY, tableWidth, rowHeight, 'D');
+
+    let colX = startX;
+    for (let i = 0; i < numCols - 1; i++) {
+      colX += colWidths[i];
+      pdf.line(colX, currentY, colX, currentY + rowHeight);
+    }
+
+    pdf.setFont('helvetica', isHeader ? 'bold' : 'normal');
+    pdf.setFontSize(isHeader ? 7 : 6.8);
+    pdf.setTextColor(isHeader ? 15 : 51, isHeader ? 23 : 65, isHeader ? 42 : 85);
+
+    colX = startX;
+    rowCells.forEach((_cell, i) => {
+      const cellTextLines = wrappedCells[i];
+      pdf.text(cellTextLines, colX + 1.5, currentY + 3.2);
+      colX += colWidths[i];
+    });
+
+    currentY += rowHeight;
+  };
+
+  renderRow(rows[0], true, 0);
+
+  for (let r = 1; r < rows.length; r++) {
+    renderRow(rows[r], false, r);
+  }
+
+  return currentY + 3;
+}
+
   for (const sec of sectionsToRender) {
     // Check if we need a new page for heading
     if (y > bottomThreshold - 15) {
@@ -258,26 +385,43 @@ export function generateControlledDocumentPdf(
 
     y += 5.5;
 
-    // Split content paragraphs
-    const paragraphs = sec.content.split(/\n+/).map(p => p.trim()).filter(Boolean);
+    // Split content blocks by double newlines or table boundaries
+    const blocks = sec.content.split(/\r?\n\s*\r?\n/).map(p => p.trim()).filter(Boolean);
 
-    for (const rawPara of paragraphs) {
+    for (const rawBlock of blocks) {
       // Clean up markdown escapes and bold markers
-      const para = rawPara
+      const block = rawBlock
         .replace(/\\([.\-()_#*+!~`[\]{}<>])/g, '$1')
         .replace(/__([^_]+)__/g, '$1')
         .replace(/\*\*([^*]+)\*\*/g, '$1');
 
       // Filter out any raw PDF / PostScript bytecode if present
-      if (/^(%PDF-|trailer|startxref|\d+\s+0\s+obj|endobj|stream|endstream|%%EOF|\/[A-Za-z0-9]+)/i.test(para)) {
+      if (/^(%PDF-|trailer|startxref|\d+\s+0\s+obj|endobj|stream|endstream|%%EOF|\/[A-Za-z0-9]+)/i.test(block)) {
         continue;
       }
-      if (/^\d+(\.\d+)?\s+\d+(\.\d+)?\s+(rg|RG|re|m|l|c|W|TL|Tf|Td|Tm|Tj)/.test(para)) {
+      if (/^\d+(\.\d+)?\s+\d+(\.\d+)?\s+(rg|RG|re|m|l|c|W|TL|Tf|Td|Tm|Tj)/.test(block)) {
         continue;
       }
 
-      const isDivider = para.startsWith('---') && para.endsWith('---');
-      const isTableLine = para.includes(' | ') || para.startsWith('|');
+      // Check if this block represents a Markdown table
+      const blockLines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const isTable = blockLines.length > 0 && blockLines.every(l => l.startsWith('|') && l.endsWith('|'));
+
+      if (isTable) {
+        y = renderTableGrid(
+          pdf,
+          block,
+          y,
+          contentWidth,
+          margin,
+          bottomThreshold,
+          drawPageBorder,
+          drawRunningHeader
+        );
+        continue;
+      }
+
+      const isDivider = block.startsWith('---') && block.endsWith('---');
 
       if (isDivider) {
         if (y > bottomThreshold - 6) {
@@ -293,17 +437,11 @@ export function generateControlledDocumentPdf(
         continue;
       }
 
-      if (isTableLine) {
-        pdf.setFont('courier', 'normal');
-        pdf.setFontSize(6.8);
-        pdf.setTextColor(30, 41, 59); // slate-800
-      } else {
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(51, 65, 85); // slate-700
-      }
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(51, 65, 85); // slate-700
 
-      const wrappedLines: string[] = pdf.splitTextToSize(para, contentWidth - 8);
+      const wrappedLines: string[] = pdf.splitTextToSize(block, contentWidth - 8);
 
       for (let i = 0; i < wrappedLines.length; i++) {
         if (y > bottomThreshold) {
@@ -311,20 +449,14 @@ export function generateControlledDocumentPdf(
           drawPageBorder();
           drawRunningHeader();
           y = margin + 17;
-          if (isTableLine) {
-            pdf.setFont('courier', 'normal');
-            pdf.setFontSize(6.8);
-            pdf.setTextColor(30, 41, 59);
-          } else {
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(7.5);
-            pdf.setTextColor(51, 65, 85);
-          }
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(7.5);
+          pdf.setTextColor(51, 65, 85);
         }
         pdf.text(wrappedLines[i], margin + 4, y);
         y += 3.8;
       }
-      y += isTableLine ? 1.2 : 2.5; // tighter spacing for table rows
+      y += 2.5; // space between paragraphs
     }
     y += 3.5; // space after section
   }
