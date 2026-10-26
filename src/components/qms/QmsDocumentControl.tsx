@@ -1544,9 +1544,28 @@ export const QmsDocumentControl: React.FC<Props> = ({
                                   <Clock className="w-3.5 h-3.5 text-purple-400" /> View Draft
                                 </button>
                                 <button
+                                  onClick={() =>
+                                    downloadDocumentFile(
+                                      item.storage_path || '',
+                                      item.file_name,
+                                      item.file_url,
+                                      {
+                                        docNumber: item.doc_number,
+                                        title: item.title,
+                                        revision: item.revision,
+                                        owner: item.uploaded_by,
+                                      }
+                                    )
+                                  }
+                                  title={`Download native file: ${item.file_name}`}
+                                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded border border-slate-700 flex items-center gap-1 transition-colors"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                                <button
                                   onClick={() => handleCancelVaultCheckout(item)}
                                   title="Cancel check-out and release lock"
-                                  className="p-1 bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300 rounded border border-slate-700 transition-colors"
+                                  className="p-1.5 bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300 rounded border border-slate-700 transition-colors"
                                 >
                                   <X className="w-3.5 h-3.5" />
                                 </button>
