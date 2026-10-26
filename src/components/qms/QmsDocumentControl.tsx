@@ -19,8 +19,10 @@ import {
   RefreshCw,
   ExternalLink,
   FolderOpen,
-  FolderPlus
+  FolderPlus,
+  Sparkles
 } from 'lucide-react';
+import confetti from 'canvas-confetti';
 import type { 
   ControlledDocument, 
   DocumentCategory, 
@@ -33,7 +35,10 @@ import {
   uploadWorkingFile, 
   uploadControlledPdfFile, 
   downloadDocumentFile, 
-  getPdfViewUrl 
+  getPdfViewUrl,
+  compileControlledMasterPdf,
+  generateControlledPdfBlob,
+  syncDocxRevisionAndExtractContent
 } from '../../services/qmsStorageService';
 import { useAuth } from '../../context/AuthContext';
 
@@ -189,8 +194,10 @@ export const QmsDocumentControl: React.FC<Props> = ({
   const [promotingDoc, setPromotingDoc] = useState<WorkingDocument | null>(null);
   const [approverName, setApproverName] = useState('Sarah Jenkins (QA VP)');
   const [approvalNotes, setApprovalNotes] = useState('Approved for production release per ISO 9001:2015 Clause 7.5.');
+  const [promotionMethod, setPromotionMethod] = useState<'AUTO_COMPILE' | 'CUSTOM_UPLOAD'>('AUTO_COMPILE');
   const [promotionPdfFile, setPromotionPdfFile] = useState<File | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
+  const [isCompilingPreview, setIsCompilingPreview] = useState(false);
 
   // Check-In Vault Item Modal State
   const [checkingInVaultItem, setCheckingInVaultItem] = useState<SourceVaultItem | null>(null);
@@ -659,6 +666,49 @@ export const QmsDocumentControl: React.FC<Props> = ({
     }
   };
 
+  // Handler to compile and preview Master PDF directly from Tier 3 Working Document
+  const handlePreviewWorkingDocPdf = (doc: WorkingDocument) => {
+    setIsCompilingPreview(true);
+    try {
+      const previewBlob = generateControlledPdfBlob({
+        docNumber: doc.doc_number,
+        title: doc.title,
+        revision: doc.target_revision,
+        department: doc.department,
+        category: doc.category,
+        author: doc.author,
+        approverName: approverName,
+        approvalNotes: `Preliminary audit preview for ${doc.target_revision} promotion.`,
+        changeSummary: doc.change_summary,
+        sourceFileName: doc.source_file_name,
+      });
+
+      const blobUrl = URL.createObjectURL(previewBlob);
+      setActivePdfUrl(blobUrl);
+      setViewingPdfDoc({
+        id: doc.id,
+        doc_number: doc.doc_number,
+        title: doc.title,
+        category: doc.category,
+        department: doc.department,
+        current_revision: doc.target_revision,
+        status: 'IN_REVIEW',
+        owner: doc.author,
+        effective_date: new Date().toISOString().slice(0, 10),
+        description: doc.change_summary,
+        pdf_file_name: `${doc.doc_number}_${doc.target_revision.replace(/\s+/g, '')}_CONTROLLED_PREVIEW.pdf`,
+        pdf_file_url: blobUrl,
+        source_file_name: doc.source_file_name,
+        source_file_type: doc.source_file_type,
+      } as ControlledDocument);
+    } catch (err) {
+      console.error('Failed to preview draft PDF:', err);
+      alert('Failed to compile draft PDF preview.');
+    } finally {
+      setIsCompilingPreview(false);
+    }
+  };
+
   // Promotion handler (Tier 3 Working Doc -> Tier 1 Controlled PDF + Tier 2 Vault)
   const handlePromoteWorkingDoc = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -669,18 +719,36 @@ export const QmsDocumentControl: React.FC<Props> = ({
       const docNum = promotingDoc.doc_number;
       const targetRev = promotingDoc.target_revision;
 
-      // 1. Determine or upload final Master PDF
+      // 1. Determine or automatically compile final Master PDF
       let finalPdfName = promotingDoc.draft_pdf_name || `${docNum}_${targetRev.replace(/\s+/g, '')}_CONTROLLED.pdf`;
       let finalPdfUrl = promotingDoc.draft_pdf_url || null;
       let finalPdfPath = promotingDoc.draft_pdf_storage_path || null;
       let finalPdfSize = promotingDoc.draft_pdf_size_bytes || 250000;
 
-      if (promotionPdfFile) {
+      if (promotionMethod === 'CUSTOM_UPLOAD' && promotionPdfFile) {
         finalPdfName = promotionPdfFile.name;
         finalPdfSize = promotionPdfFile.size;
         const uploadPdfRes = await uploadControlledPdfFile(docNum, targetRev, promotionPdfFile);
         finalPdfPath = uploadPdfRes.path;
         finalPdfUrl = uploadPdfRes.url;
+      } else {
+        // AUTOMATIC COMPILATION OF LEGALLY AUDITABLE ISO 9001:2015 MASTER PDF
+        const compiled = await compileControlledMasterPdf({
+          docNumber: docNum,
+          title: promotingDoc.title,
+          revision: targetRev,
+          department: promotingDoc.department,
+          category: promotingDoc.category,
+          author: promotingDoc.author,
+          approverName: approverName,
+          approvalNotes: approvalNotes,
+          changeSummary: promotingDoc.change_summary,
+          sourceFileName: promotingDoc.source_file_name,
+        });
+        finalPdfName = compiled.fileName;
+        finalPdfSize = compiled.size;
+        finalPdfPath = compiled.path;
+        finalPdfUrl = compiled.url;
       }
 
       // 2. Deposit master source file into Tier 2 Source Vault
@@ -699,13 +767,17 @@ export const QmsDocumentControl: React.FC<Props> = ({
         uploaded_by: promotingDoc.author,
         uploaded_at: new Date().toISOString().slice(0, 10),
         is_checked_out: false,
-        notes: `Master native source vaulted upon promotion by ${approverName}. Note: ${approvalNotes}`,
+        checked_out_by: null,
+        notes: `Master native source vaulted upon promotion to ${targetRev} by ${approverName}. Note: ${approvalNotes}`,
       };
 
-      setVaultItems((prev) => [vaultEntry, ...prev]);
+      setVaultItems((prev) => {
+        const filtered = prev.filter((v) => v.doc_number.toUpperCase() !== docNum.toUpperCase());
+        return [vaultEntry, ...filtered];
+      });
 
-      // 3. Add to Controlled Documents (Tier 1)
-      await onAddDocument({
+      // 3. Promote to Controlled Documents (Tier 1)
+      const controlledDocData: Partial<ControlledDocument> = {
         doc_number: docNum,
         title: promotingDoc.title,
         category: promotingDoc.category,
@@ -725,13 +797,36 @@ export const QmsDocumentControl: React.FC<Props> = ({
         source_file_type: vaultEntry.file_type,
         approved_by: approverName,
         approved_at: new Date().toISOString().slice(0, 10),
-      });
+      };
+
+      await onAddDocument(controlledDocData);
 
       // 4. Remove from Working Documents
       setWorkingDocs((prev) => prev.filter((w) => w.id !== promotingDoc.id));
       setPromotingDoc(null);
       setPromotionPdfFile(null);
       setActiveTier('CONTROLLED_PDFS');
+
+      // 5. Celebration & immediate PDF review modal
+      try {
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+        });
+      } catch {
+        // optional confetti
+      }
+
+      setViewingPdfDoc({
+        id: `doc-${Date.now()}`,
+        ...controlledDocData,
+      } as ControlledDocument);
+
+      setVaultNotification({
+        message: `✓ Document ${docNum} successfully promoted to ${targetRev}! Master PDF compiled and released to shopfloor controlled register.`,
+        type: 'success',
+      });
     } catch (err) {
       console.error('Promotion error:', err);
       alert('Failed to promote document to controlled register.');
@@ -876,7 +971,25 @@ export const QmsDocumentControl: React.FC<Props> = ({
         newFileName = checkInRevisedFile.name;
         newFileSize = checkInRevisedFile.size;
         newFileType = checkInRevisedFile.name.split('.').pop() || 'docx';
-        const uploadRes = await uploadWorkingFile(item.doc_number, checkInNewRev, checkInRevisedFile);
+
+        let fileOrBlobToUpload: File | Blob = checkInRevisedFile;
+        if (newFileType.toLowerCase() === 'docx' || newFileType.toLowerCase() === 'doc') {
+          try {
+            const syncResult = await syncDocxRevisionAndExtractContent(checkInRevisedFile, {
+              targetRev: checkInNewRev,
+              author: currentAuthorName,
+              changeSummary: checkInChangeSummary,
+              docNumber: item.doc_number,
+              title: item.title,
+            });
+            fileOrBlobToUpload = syncResult.updatedBlob;
+            newFileSize = syncResult.updatedBlob.size;
+          } catch (syncErr) {
+            console.warn('Docx revision sync warning:', syncErr);
+          }
+        }
+
+        const uploadRes = await uploadWorkingFile(item.doc_number, checkInNewRev, fileOrBlobToUpload, newFileName);
         newFilePath = uploadRes.path;
         newFileUrl = uploadRes.url;
       }
@@ -898,11 +1011,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
       };
 
       setVaultItems((prev) => {
-        const exists = prev.some((v) => v.doc_number.toUpperCase() === item.doc_number.toUpperCase());
-        if (exists) {
-          return prev.map((v) => (v.doc_number.toUpperCase() === item.doc_number.toUpperCase() ? updatedVault : v));
-        }
-        return [updatedVault, ...prev];
+        const filtered = prev.filter((v) => v.doc_number.toUpperCase() !== item.doc_number.toUpperCase());
+        return [updatedVault, ...filtered];
       });
 
       // 2. Update or spawn working draft in Tier 3
@@ -1757,9 +1867,9 @@ export const QmsDocumentControl: React.FC<Props> = ({
                               PDF Attached
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 w-fit">
-                              <AlertCircle className="w-3 h-3 text-amber-400" />
-                              Awaiting Master PDF
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1 w-fit">
+                              <Sparkles className="w-3 h-3 text-purple-400" />
+                              Ready to Auto-Compile
                             </span>
                           )}
                         </td>
@@ -1793,8 +1903,18 @@ export const QmsDocumentControl: React.FC<Props> = ({
                             </button>
 
                             <button
+                              onClick={() => handlePreviewWorkingDocPdf(w)}
+                              title="Compile and preview Master PDF"
+                              disabled={isCompilingPreview}
+                              className="px-2.5 py-1 bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-500/40 rounded text-xs font-medium flex items-center gap-1 transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-purple-400" /> Compile & Preview
+                            </button>
+
+                            <button
                               onClick={() => {
                                 setPromotingDoc(w);
+                                setPromotionMethod('AUTO_COMPILE');
                                 setPromotionPdfFile(null);
                               }}
                               className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow"
@@ -2046,46 +2166,105 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Upload Finalized Master PDF */}
-              <div>
-                <label className="text-slate-300 block mb-1 font-medium">
-                  Compiled Master PDF (.pdf) <span className="text-rose-400">*</span>
-                </label>
-                <div className="border border-dashed border-slate-700 hover:border-slate-500 rounded-lg p-3 bg-slate-950/60 text-center transition-colors">
-                  <input
-                    ref={promotionPdfInputRef}
-                    type="file"
-                    accept=".pdf"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) {
-                        setPromotionPdfFile(e.target.files[0]);
-                      }
-                    }}
-                    className="hidden"
-                  />
-                  <div className="space-y-2">
+              {/* Compilation Method Selector */}
+              <div className="flex rounded-lg bg-slate-950 p-1 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setPromotionMethod('AUTO_COMPILE')}
+                  className={`flex-1 py-1.5 px-3 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                    promotionMethod === 'AUTO_COMPILE'
+                      ? 'bg-emerald-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-300" /> Auto-Compile Master PDF (Recommended)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPromotionMethod('CUSTOM_UPLOAD')}
+                  className={`flex-1 py-1.5 px-3 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                    promotionMethod === 'CUSTOM_UPLOAD'
+                      ? 'bg-emerald-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Upload className="w-3.5 h-3.5" /> Upload Custom PDF
+                </button>
+              </div>
+
+              {/* Mode 1: Auto-Compile Master PDF */}
+              {promotionMethod === 'AUTO_COMPILE' && (
+                <div className="p-3.5 bg-emerald-950/20 border border-emerald-500/30 rounded-xl space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-emerald-400 font-bold block text-xs flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        Clean 1-Click Master PDF Generation
+                      </span>
+                      <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
+                        Quality Compass will automatically generate and digitally stamp the official ISO 9001:2015 Clause 7.5 Controlled Master PDF for <strong className="text-white font-mono">{promotingDoc.doc_number} ({promotingDoc.target_revision})</strong> with the official header box, approval authority block, watermark, and revision traceability table.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-emerald-500/20">
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Master source: {promotingDoc.source_file_name}
+                    </span>
                     <button
                       type="button"
-                      onClick={() => promotionPdfInputRef.current?.click()}
-                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex items-center gap-2 mx-auto shadow"
+                      onClick={() => handlePreviewWorkingDocPdf(promotingDoc)}
+                      disabled={isCompilingPreview}
+                      className="px-3 py-1 bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-500/40 rounded text-xs font-medium flex items-center gap-1.5 transition-colors"
                     >
-                      <Upload className="w-4 h-4" /> Browse Compiled Master PDF (.pdf)
+                      <Eye className="w-3.5 h-3.5 text-purple-400" /> Preview Generated PDF
                     </button>
-                    <span className="text-blue-400 font-semibold block">
-                      {promotionPdfFile 
-                        ? promotionPdfFile.name 
-                        : promotingDoc.draft_pdf_name 
-                        ? `Using attached PDF: ${promotingDoc.draft_pdf_name}` 
-                        : 'Select the signed, compiled PDF exported from Word or Excel'}
-                    </span>
-                    <span className="text-[10px] text-slate-500 block">
-                      {promotionPdfFile 
-                        ? `${(promotionPdfFile.size / 1024).toFixed(0)} KB ready to release` 
-                        : 'Upload approved read-only PDF'}
-                    </span>
                   </div>
                 </div>
-              </div>
+              )}
+
+              {/* Mode 2: Custom Upload */}
+              {promotionMethod === 'CUSTOM_UPLOAD' && (
+                <div>
+                  <label className="text-slate-300 block mb-1 font-medium">
+                    Upload Pre-Compiled Master PDF (.pdf) <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="border border-dashed border-slate-700 hover:border-slate-500 rounded-lg p-3 bg-slate-950/60 text-center transition-colors">
+                    <input
+                      ref={promotionPdfInputRef}
+                      type="file"
+                      accept=".pdf"
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) {
+                          setPromotionPdfFile(e.target.files[0]);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => promotionPdfInputRef.current?.click()}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold flex items-center gap-2 mx-auto shadow"
+                      >
+                        <Upload className="w-4 h-4" /> Browse Master PDF (.pdf)
+                      </button>
+                      <span className="text-blue-400 font-semibold block">
+                        {promotionPdfFile 
+                          ? promotionPdfFile.name 
+                          : promotingDoc.draft_pdf_name 
+                          ? `Using attached PDF: ${promotingDoc.draft_pdf_name}` 
+                          : 'Select signed PDF exported from Word or Excel'}
+                      </span>
+                      <span className="text-[10px] text-slate-500 block">
+                        {promotionPdfFile 
+                          ? `${(promotionPdfFile.size / 1024).toFixed(0)} KB ready to release` 
+                          : 'Upload approved read-only PDF'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="text-slate-300 block mb-1 font-medium">Approving Authority (QA Executive)</label>
@@ -2111,8 +2290,8 @@ export const QmsDocumentControl: React.FC<Props> = ({
 
               <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-[11px] text-slate-300 space-y-1">
                 <strong className="text-emerald-400 block">Automated Document Lifecycle Actions:</strong>
-                <div>✓ Generates & publishes approved PDF into Tier 1 Controlled Documents register.</div>
-                <div>✓ Archives native source file (`{promotingDoc.source_file_name}`) into Tier 2 Source Vault.</div>
+                <div>✓ Generates & publishes approved {promotingDoc.target_revision} Master PDF into Tier 1 Controlled Documents register.</div>
+                <div>✓ Archives native source file (`{promotingDoc.source_file_name}`) into Tier 2 Source Vault at {promotingDoc.target_revision}.</div>
                 <div>✓ Removes active draft from Tier 3 Working Documents.</div>
               </div>
 
@@ -2127,16 +2306,16 @@ export const QmsDocumentControl: React.FC<Props> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isPromoting}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 font-semibold shadow-lg shadow-emerald-500/20 flex items-center gap-1.5"
+                  disabled={isPromoting || (promotionMethod === 'CUSTOM_UPLOAD' && !promotionPdfFile && !promotingDoc.draft_pdf_name)}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 font-semibold shadow-lg shadow-emerald-500/20 flex items-center gap-1.5 disabled:opacity-50"
                 >
                   {isPromoting ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" /> Releasing...
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Compiling & Releasing...
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="w-4 h-4" /> Authorize & Release Controlled PDF
+                      <CheckCircle2 className="w-4 h-4" /> Authorize & Release {promotingDoc.target_revision} Master PDF
                     </>
                   )}
                 </button>

@@ -104,6 +104,48 @@ export async function createControlledDocument(doc: Partial<ControlledDocument>)
   return data;
 }
 
+export async function updateControlledDocument(
+  documentId: string,
+  doc: Partial<ControlledDocument>
+): Promise<ControlledDocument> {
+  const updatePayload: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (doc.title !== undefined) updatePayload.title = doc.title;
+  if (doc.category !== undefined) updatePayload.category = doc.category;
+  if (doc.department !== undefined) updatePayload.department = doc.department;
+  if (doc.current_revision !== undefined) updatePayload.current_revision = doc.current_revision;
+  if (doc.status !== undefined) updatePayload.status = doc.status;
+  if (doc.owner !== undefined) updatePayload.owner = doc.owner;
+  if (doc.effective_date !== undefined) updatePayload.effective_date = doc.effective_date;
+  if (doc.next_review_date !== undefined) updatePayload.next_review_date = doc.next_review_date;
+  if (doc.description !== undefined) updatePayload.description = doc.description;
+  if (doc.file_url !== undefined) updatePayload.file_url = doc.file_url;
+  if (doc.pdf_file_url !== undefined) updatePayload.pdf_file_url = doc.pdf_file_url;
+  if (doc.pdf_file_name !== undefined) updatePayload.pdf_file_name = doc.pdf_file_name;
+  if (doc.pdf_file_size_bytes !== undefined) updatePayload.pdf_file_size_bytes = doc.pdf_file_size_bytes;
+  if (doc.approved_by !== undefined) updatePayload.approved_by = doc.approved_by;
+  if (doc.approved_at !== undefined) updatePayload.approved_at = doc.approved_at;
+  if (doc.source_vault_id !== undefined) updatePayload.source_vault_id = doc.source_vault_id;
+  if (doc.source_file_name !== undefined) updatePayload.source_file_name = doc.source_file_name;
+  if (doc.source_file_type !== undefined) updatePayload.source_file_type = doc.source_file_type;
+
+  const { data, error } = await db
+    .from('qms_documents')
+    .update(updatePayload)
+    .eq('id', documentId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating controlled document:', error);
+    throw error;
+  }
+
+  return data;
+}
+
 export async function addDocumentRevision(
   documentId: string,
   revisionNumber: string,

@@ -4,8 +4,8 @@ import type { TitleBlockMetadata } from '../types/cad';
 import type { InspectionBalloon, CharacteristicClassification, DimensionType } from '../types/balloon';
 import type { InspectionControlPlanItem, ChinaApprovalRecord, ChinaApprovalDecision, ConformanceStatus } from '../types/inspection';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://jggdqmygudsiueaiqzcn.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_VtnkkwSDUE7_f9n0v1cvsA_CYRupQBe';
+const SUPABASE_URL = import.meta.env?.VITE_SUPABASE_URL || 'https://jggdqmygudsiueaiqzcn.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_VtnkkwSDUE7_f9n0v1cvsA_CYRupQBe';
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
 
