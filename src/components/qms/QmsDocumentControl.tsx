@@ -64,6 +64,76 @@ const DEPARTMENTS = [
 const VAULT_STORAGE_KEY = 'qc_qms_source_vault_items_v2';
 const WORKING_STORAGE_KEY = 'qc_qms_working_documents_v2';
 
+interface StandardBaseline {
+  id: string;
+  doc_number: string;
+  title: string;
+  category: DocumentCategory;
+  department: string;
+  current_revision: string;
+  source_file_name: string;
+  has_vault_master: boolean;
+  is_standard_baseline: boolean;
+}
+
+const STANDARD_BASELINES: StandardBaseline[] = [
+  {
+    id: 'base-qms-001',
+    doc_number: 'SOP-QMS-001',
+    title: 'ISO 9001:2015 Quality Policy & Defect Quarantine SOP',
+    category: 'SOP',
+    department: 'Quality Assurance',
+    current_revision: 'Rev A',
+    source_file_name: 'SOP-QMS-001_Quality_Policy_Master.docx',
+    has_vault_master: false,
+    is_standard_baseline: true,
+  },
+  {
+    id: 'base-qua-010',
+    doc_number: 'SOP-QUA-010',
+    title: 'Five-Piece First Article Inspection & Blueprint Sign-Off',
+    category: 'SOP',
+    department: 'Quality Assurance',
+    current_revision: 'Rev A',
+    source_file_name: 'SOP-QUA-010_FAI_Signoff_Master.docx',
+    has_vault_master: false,
+    is_standard_baseline: true,
+  },
+  {
+    id: 'base-mch-022',
+    doc_number: 'WI-MCH-022',
+    title: 'First-Piece Quality Metrology & Optical Comparator Protocol',
+    category: 'Work Instruction',
+    department: 'Manufacturing',
+    current_revision: 'Rev A',
+    source_file_name: 'WI-MCH-022_Optical_Comparator.xlsx',
+    has_vault_master: false,
+    is_standard_baseline: true,
+  },
+  {
+    id: 'base-saf-001',
+    doc_number: 'SOP-SAF-001',
+    title: 'Lockout/Tagout (LOTO) & Electrical Zero Energy State Protocol',
+    category: 'SOP',
+    department: 'Manufacturing',
+    current_revision: 'Rev A',
+    source_file_name: 'SOP-SAF-001_LOTO_Procedure.docx',
+    has_vault_master: false,
+    is_standard_baseline: true,
+  },
+  {
+    id: 'base-form-fai',
+    doc_number: 'FORM-APQP-004',
+    title: 'AIAG 4th Edition First Article Inspection Balloon Report',
+    category: 'Form/Template',
+    department: 'Engineering',
+    current_revision: 'Rev 01',
+    source_file_name: 'FORM-APQP-004_FAI_Report.xlsx',
+    has_vault_master: false,
+    is_standard_baseline: true,
+  },
+];
+
 function loadStoredVault(): SourceVaultItem[] {
   try {
     const raw = localStorage.getItem(VAULT_STORAGE_KEY);
@@ -153,6 +223,14 @@ export const QmsDocumentControl: React.FC<Props> = ({
   const [vaultItems, setVaultItems] = useState<SourceVaultItem[]>(() => loadStoredVault());
   const [workingDocs, setWorkingDocs] = useState<WorkingDocument[]>(() => loadStoredWorking());
 
+  // Toast / Status notification for vault and lifecycle events
+  const [vaultNotification, setVaultNotification] = useState<{
+    message: string;
+    type: 'success' | 'info';
+    actionLabel?: string;
+    actionTier?: 'CONTROLLED_PDFS' | 'SOURCE_VAULT' | 'WORKING_DOCS';
+  } | null>(null);
+
   // Save changes to persistent storage
   useEffect(() => {
     try {
@@ -170,118 +248,100 @@ export const QmsDocumentControl: React.FC<Props> = ({
     }
   }, [workingDocs]);
 
-  // Combined Repository Catalog (Tier 1 documents + Tier 2 vault items + Standard Enterprise Baselines)
-  const repositoryCatalog = useMemo(() => {
-    const items: Array<{
-      id: string;
-      doc_number: string;
-      title: string;
-      category: DocumentCategory;
-      department: string;
-      current_revision: string;
-      source_file_name?: string;
-      has_vault_master: boolean;
-      is_standard_baseline?: boolean;
-    }> = [];
+  // Effective Tier 2 Source Vault Items:
+  // Dynamically merges Standard Enterprise Baselines, Tier 1 Controlled Documents, and Vault Locks/Edits
+  const effectiveVaultItems = useMemo<SourceVaultItem[]>(() => {
+    const map = new Map<string, SourceVaultItem>();
 
-    // 1. From Controlled Documents
-    documents.forEach((d) => {
-      const vaultMatch = vaultItems.find((v) => v.doc_number === d.doc_number);
-      items.push({
-        id: d.id,
-        doc_number: d.doc_number,
-        title: d.title,
-        category: d.category,
-        department: d.department,
-        current_revision: d.current_revision,
-        source_file_name: vaultMatch?.file_name || d.source_file_name || undefined,
-        has_vault_master: !!vaultMatch,
+    // 1. Standard Enterprise Baselines as default foundation
+    STANDARD_BASELINES.forEach((b) => {
+      const ext = b.source_file_name.split('.').pop() || 'docx';
+      map.set(b.doc_number.toUpperCase(), {
+        id: `vault-${b.id}`,
+        document_id: b.id,
+        doc_number: b.doc_number,
+        title: b.title,
+        revision: b.current_revision,
+        file_name: b.source_file_name,
+        file_type: ext,
+        file_size_bytes: ext === 'xlsx' ? 84000 : 1420000,
+        file_url: null,
+        storage_path: null,
+        uploaded_by: 'ISO 9001 Lead Auditor',
+        uploaded_at: '2026-01-15',
+        is_checked_out: false,
+        checked_out_by: null,
+        notes: `Enterprise procedure master baseline template (${ext.toUpperCase()}).`,
       });
     });
 
-    // 2. From Vault Items if not in documents
+    // 2. Synchronize from Tier 1 Controlled Documents:
+    // Every approved document in Tier 1 has its native master vaulted in Tier 2
+    documents.forEach((doc) => {
+      const ext =
+        doc.source_file_type ||
+        (doc.source_file_name ? doc.source_file_name.split('.').pop() : null) ||
+        (doc.category === 'Work Instruction' || doc.category === 'Form/Template' ? 'xlsx' : 'docx');
+      const fileName = doc.source_file_name || `${doc.doc_number}_Master.${ext}`;
+
+      map.set(doc.doc_number.toUpperCase(), {
+        id: doc.source_vault_id || `vault-auto-${doc.id}`,
+        document_id: doc.id,
+        doc_number: doc.doc_number,
+        title: doc.title,
+        revision: doc.current_revision,
+        file_name: fileName,
+        file_type: ext,
+        file_size_bytes: 1250000,
+        file_url: doc.file_url || null,
+        storage_path: doc.storage_path || null,
+        uploaded_by: doc.owner || doc.approved_by || 'Quality Assurance',
+        uploaded_at: doc.effective_date || new Date().toISOString().slice(0, 10),
+        is_checked_out: false,
+        checked_out_by: null,
+        notes: `Master native source file for released controlled procedure ${doc.doc_number}.`,
+      });
+    });
+
+    // 3. User deposits, edits, and active check-out locks in vaultItems take precedence
     vaultItems.forEach((v) => {
-      if (!items.some((i) => i.doc_number === v.doc_number)) {
-        items.push({
-          id: v.id,
-          doc_number: v.doc_number,
-          title: v.title,
-          category: 'SOP',
-          department: 'Quality Assurance',
-          current_revision: v.revision,
-          source_file_name: v.file_name,
-          has_vault_master: true,
-        });
-      }
+      map.set(v.doc_number.toUpperCase(), v);
     });
 
-    // 3. Enterprise Standard Procedure Baselines for initial selection & testing
-    const STANDARD_BASELINES = [
-      {
-        id: 'base-qms-001',
-        doc_number: 'SOP-QMS-001',
-        title: 'ISO 9001:2015 Quality Policy & Defect Quarantine SOP',
-        category: 'SOP' as DocumentCategory,
-        department: 'Quality Assurance',
-        current_revision: 'Rev A',
-        source_file_name: 'SOP-QMS-001_Quality_Policy_Master.docx',
-        has_vault_master: false,
-        is_standard_baseline: true,
-      },
-      {
-        id: 'base-qua-010',
-        doc_number: 'SOP-QUA-010',
-        title: 'Five-Piece First Article Inspection & Blueprint Sign-Off',
-        category: 'SOP' as DocumentCategory,
-        department: 'Quality Assurance',
-        current_revision: 'Rev A',
-        source_file_name: 'SOP-QUA-010_FAI_Signoff_Master.docx',
-        has_vault_master: false,
-        is_standard_baseline: true,
-      },
-      {
-        id: 'base-mch-022',
-        doc_number: 'WI-MCH-022',
-        title: 'First-Piece Quality Metrology & Optical Comparator Protocol',
-        category: 'Work Instruction' as DocumentCategory,
-        department: 'Manufacturing',
-        current_revision: 'Rev A',
-        source_file_name: 'WI-MCH-022_Optical_Comparator.xlsx',
-        has_vault_master: false,
-        is_standard_baseline: true,
-      },
-      {
-        id: 'base-saf-001',
-        doc_number: 'SOP-SAF-001',
-        title: 'Lockout/Tagout (LOTO) & Electrical Zero Energy State Protocol',
-        category: 'SOP' as DocumentCategory,
-        department: 'Manufacturing',
-        current_revision: 'Rev A',
-        source_file_name: 'SOP-SAF-001_LOTO_Procedure.docx',
-        has_vault_master: false,
-        is_standard_baseline: true,
-      },
-      {
-        id: 'base-form-fai',
-        doc_number: 'FORM-APQP-004',
-        title: 'AIAG 4th Edition First Article Inspection Balloon Report',
-        category: 'Form/Template' as DocumentCategory,
-        department: 'Engineering',
-        current_revision: 'Rev 01',
-        source_file_name: 'FORM-APQP-004_FAI_Report.xlsx',
-        has_vault_master: false,
-        is_standard_baseline: true,
-      },
-    ];
+    return Array.from(map.values());
+  }, [vaultItems, documents]);
 
-    STANDARD_BASELINES.forEach((b) => {
-      if (!items.some((i) => i.doc_number === b.doc_number)) {
-        items.push(b);
-      }
+  // Filtered Vault Items for Tier 2 view
+  const filteredVaultItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return effectiveVaultItems.filter((item) => {
+      if (!query) return true;
+      return (
+        item.doc_number.toLowerCase().includes(query) ||
+        item.title.toLowerCase().includes(query) ||
+        item.file_name.toLowerCase().includes(query) ||
+        (item.notes || '').toLowerCase().includes(query) ||
+        (item.checked_out_by || '').toLowerCase().includes(query)
+      );
     });
+  }, [effectiveVaultItems, searchQuery]);
 
-    return items;
-  }, [documents, vaultItems]);
+  // Combined Repository Catalog (Tier 1 documents + Tier 2 vault items + Standard Enterprise Baselines)
+  const repositoryCatalog = useMemo(() => {
+    return effectiveVaultItems.map((v) => {
+      const docMatch = documents.find((d) => d.doc_number.toUpperCase() === v.doc_number.toUpperCase());
+      return {
+        id: v.id,
+        doc_number: v.doc_number,
+        title: v.title,
+        category: (docMatch ? docMatch.category : (v.file_type === 'xlsx' ? 'Work Instruction' : 'SOP')) as DocumentCategory,
+        department: docMatch ? docMatch.department : 'Quality Assurance',
+        current_revision: v.revision,
+        source_file_name: v.file_name,
+        has_vault_master: true,
+      };
+    });
+  }, [documents, effectiveVaultItems]);
 
   // Working Document Modal State (Select from Repository vs Create New)
   const [workingDocMode, setWorkingDocMode] = useState<'SELECT_REPO' | 'NEW_DOC'>('SELECT_REPO');
@@ -680,32 +740,122 @@ export const QmsDocumentControl: React.FC<Props> = ({
     }
   };
 
-  // Check-out source file from vault (locks file and downloads the master native file)
+  // Check-out source file from vault (locks file, downloads master native file, and stages draft in Tier 3)
   const handleToggleVaultCheckout = async (item: SourceVaultItem) => {
     if (!item.is_checked_out) {
-      // Check-out: lock file and download directly to engineer's machine
-      setVaultItems((prev) =>
-        prev.map((v) => {
-          if (v.id === item.id) {
-            return {
-              ...v,
-              is_checked_out: true,
-              checked_out_by: currentAuthorName,
-            };
-          }
-          return v;
-        })
-      );
+      // 1. Calculate next target revision
+      let targetRev = 'Rev B';
+      if (item.revision.startsWith('Rev ')) {
+        const letter = item.revision.replace('Rev ', '').trim();
+        if (letter.length === 1 && letter >= 'A' && letter < 'Z') {
+          targetRev = `Rev ${String.fromCharCode(letter.charCodeAt(0) + 1)}`;
+        } else {
+          targetRev = `${item.revision}-Next`;
+        }
+      } else if (!isNaN(Number(item.revision))) {
+        targetRev = String(Number(item.revision) + 1).padStart(2, '0');
+      }
 
-      // Immediately download the master native file for local editing in Word/Excel
-      await downloadDocumentFile(item.storage_path || '', item.file_name, item.file_url);
+      // 2. Lock file in vaultItems
+      const updatedVaultItem: SourceVaultItem = {
+        ...item,
+        is_checked_out: true,
+        checked_out_by: currentAuthorName,
+        notes: `Checked out by ${currentAuthorName} for ${targetRev} drafting on ${new Date().toISOString().slice(0, 10)}.`,
+      };
+
+      setVaultItems((prev) => {
+        const exists = prev.some((v) => v.doc_number.toUpperCase() === item.doc_number.toUpperCase());
+        if (exists) {
+          return prev.map((v) => (v.doc_number.toUpperCase() === item.doc_number.toUpperCase() ? updatedVaultItem : v));
+        }
+        return [updatedVaultItem, ...prev];
+      });
+
+      // 3. Automatically stage a working document draft in Tier 3
+      const existingDraft = workingDocs.find(
+        (w) => w.doc_number.toUpperCase() === item.doc_number.toUpperCase() && w.stage === 'DRAFT'
+      );
+      if (!existingDraft) {
+        const docMatch = documents.find((d) => d.doc_number.toUpperCase() === item.doc_number.toUpperCase());
+        const newDraft: WorkingDocument = {
+          id: `work-co-${Date.now()}`,
+          doc_number: item.doc_number,
+          title: item.title,
+          target_revision: targetRev,
+          category: docMatch ? docMatch.category : (item.file_type === 'xlsx' ? 'Work Instruction' : 'SOP'),
+          department: docMatch ? docMatch.department : 'Quality Assurance',
+          author: currentAuthorName,
+          stage: 'DRAFT',
+          source_file_name: item.file_name,
+          source_file_type: item.file_type,
+          source_file_size_bytes: item.file_size_bytes,
+          source_file_url: item.file_url,
+          source_storage_path: item.storage_path,
+          source_vault_ref: item.id,
+          change_summary: `Revision ${targetRev} initiated via vault check-out from ${item.revision} by ${currentAuthorName}.`,
+          created_at: new Date().toISOString().slice(0, 10),
+          updated_at: new Date().toISOString().slice(0, 10),
+        };
+        setWorkingDocs((wPrev) => [newDraft, ...wPrev]);
+      }
+
+      // 4. Download genuine native document file (.docx / .xlsx) to disk
+      await downloadDocumentFile(item.storage_path || '', item.file_name, item.file_url, {
+        docNumber: item.doc_number,
+        title: item.title,
+        revision: item.revision,
+        owner: currentAuthorName,
+      });
+
+      // 5. Toast notification
+      setVaultNotification({
+        message: `✓ Checked out ${item.doc_number}! Master file (${item.file_name}) downloaded to your computer. Working draft ${targetRev} active in Tier 3.`,
+        type: 'success',
+        actionLabel: 'Go to Tier 3 Working Draft',
+        actionTier: 'WORKING_DOCS',
+      });
     } else {
       // Prompt for check-in modal to upload updated file and record revision change summary
       setCheckingInVaultItem(item);
-      setCheckInNewRev(item.revision === 'Rev A' ? 'Rev B' : `${item.revision}-Next`);
+      let nextRev = 'Rev B';
+      if (item.revision.startsWith('Rev ')) {
+        const letter = item.revision.replace('Rev ', '').trim();
+        if (letter.length === 1 && letter >= 'A' && letter < 'Z') {
+          nextRev = `Rev ${String.fromCharCode(letter.charCodeAt(0) + 1)}`;
+        } else {
+          nextRev = `${item.revision}-Next`;
+        }
+      } else if (!isNaN(Number(item.revision))) {
+        nextRev = String(Number(item.revision) + 1).padStart(2, '0');
+      }
+      setCheckInNewRev(nextRev);
       setCheckInChangeSummary('');
       setCheckInRevisedFile(null);
     }
+  };
+
+  // Cancel / Release vault check-out lock
+  const handleCancelVaultCheckout = (item: SourceVaultItem) => {
+    const updatedVaultItem: SourceVaultItem = {
+      ...item,
+      is_checked_out: false,
+      checked_out_by: null,
+      notes: `Check-out lock cancelled / released on ${new Date().toISOString().slice(0, 10)}.`,
+    };
+
+    setVaultItems((prev) => {
+      const exists = prev.some((v) => v.doc_number.toUpperCase() === item.doc_number.toUpperCase());
+      if (exists) {
+        return prev.map((v) => (v.doc_number.toUpperCase() === item.doc_number.toUpperCase() ? updatedVaultItem : v));
+      }
+      return [updatedVaultItem, ...prev];
+    });
+
+    setVaultNotification({
+      message: `Check-out lock for ${item.doc_number} was successfully released. Document is unlocked in vault.`,
+      type: 'info',
+    });
   };
 
   // Submit check-in modal
@@ -720,55 +870,96 @@ export const QmsDocumentControl: React.FC<Props> = ({
       let newFilePath = item.storage_path;
       let newFileUrl = item.file_url;
       let newFileSize = item.file_size_bytes;
+      let newFileType = item.file_type;
 
       if (checkInRevisedFile) {
         newFileName = checkInRevisedFile.name;
         newFileSize = checkInRevisedFile.size;
+        newFileType = checkInRevisedFile.name.split('.').pop() || 'docx';
         const uploadRes = await uploadWorkingFile(item.doc_number, checkInNewRev, checkInRevisedFile);
         newFilePath = uploadRes.path;
         newFileUrl = uploadRes.url;
       }
 
-      // 1. Release check-out lock in vault
-      setVaultItems((prev) =>
-        prev.map((v) => {
-          if (v.id === item.id) {
-            return {
-              ...v,
-              is_checked_out: false,
-              checked_out_by: null,
-              notes: `Checked in by ${currentAuthorName}: ${checkInChangeSummary}`,
-            };
-          }
-          return v;
-        })
-      );
-
-      // 2. Automatically spawn a Working Document draft in Tier 3
-      const newDraft: WorkingDocument = {
-        id: `work-${Date.now()}`,
-        doc_number: item.doc_number,
-        title: item.title,
-        target_revision: checkInNewRev,
-        category: 'SOP',
-        department: 'Quality Assurance',
-        author: currentAuthorName,
-        stage: 'DRAFT',
-        source_file_name: newFileName,
-        source_file_type: newFileName.split('.').pop() || 'docx',
-        source_file_size_bytes: newFileSize,
-        source_file_url: newFileUrl,
-        source_storage_path: newFilePath,
-        source_vault_ref: item.id,
-        change_summary: checkInChangeSummary || 'Engineering revision checked in from vault.',
-        created_at: new Date().toISOString().slice(0, 10),
-        updated_at: new Date().toISOString().slice(0, 10),
+      // 1. Release check-out lock in vault with updated revision
+      const updatedVault: SourceVaultItem = {
+        ...item,
+        revision: checkInNewRev,
+        file_name: newFileName,
+        file_type: newFileType,
+        file_size_bytes: newFileSize,
+        file_url: newFileUrl,
+        storage_path: newFilePath,
+        is_checked_out: false,
+        checked_out_by: null,
+        uploaded_by: currentAuthorName,
+        uploaded_at: new Date().toISOString().slice(0, 10),
+        notes: `Checked in at ${checkInNewRev} by ${currentAuthorName}: ${checkInChangeSummary}`,
       };
 
-      setWorkingDocs((prev) => [newDraft, ...prev]);
+      setVaultItems((prev) => {
+        const exists = prev.some((v) => v.doc_number.toUpperCase() === item.doc_number.toUpperCase());
+        if (exists) {
+          return prev.map((v) => (v.doc_number.toUpperCase() === item.doc_number.toUpperCase() ? updatedVault : v));
+        }
+        return [updatedVault, ...prev];
+      });
+
+      // 2. Update or spawn working draft in Tier 3
+      const existingDraftIndex = workingDocs.findIndex(
+        (w) => w.doc_number.toUpperCase() === item.doc_number.toUpperCase() && w.stage === 'DRAFT'
+      );
+
+      if (existingDraftIndex >= 0) {
+        setWorkingDocs((prev) =>
+          prev.map((w, idx) =>
+            idx === existingDraftIndex
+              ? {
+                  ...w,
+                  target_revision: checkInNewRev,
+                  source_file_name: newFileName,
+                  source_file_type: newFileType,
+                  source_file_size_bytes: newFileSize,
+                  source_file_url: newFileUrl,
+                  source_storage_path: newFilePath,
+                  change_summary: checkInChangeSummary,
+                  updated_at: new Date().toISOString().slice(0, 10),
+                }
+              : w
+          )
+        );
+      } else {
+        const docMatch = documents.find((d) => d.doc_number.toUpperCase() === item.doc_number.toUpperCase());
+        const newDraft: WorkingDocument = {
+          id: `work-${Date.now()}`,
+          doc_number: item.doc_number,
+          title: item.title,
+          target_revision: checkInNewRev,
+          category: docMatch ? docMatch.category : 'SOP',
+          department: docMatch ? docMatch.department : 'Quality Assurance',
+          author: currentAuthorName,
+          stage: 'DRAFT',
+          source_file_name: newFileName,
+          source_file_type: newFileType,
+          source_file_size_bytes: newFileSize,
+          source_file_url: newFileUrl,
+          source_storage_path: newFilePath,
+          source_vault_ref: item.id,
+          change_summary: checkInChangeSummary || 'Engineering revision checked in from vault.',
+          created_at: new Date().toISOString().slice(0, 10),
+          updated_at: new Date().toISOString().slice(0, 10),
+        };
+        setWorkingDocs((prev) => [newDraft, ...prev]);
+      }
+
       setCheckingInVaultItem(null);
       setCheckInRevisedFile(null);
-      setActiveTier('WORKING_DOCS');
+      setVaultNotification({
+        message: `✓ Successfully checked in ${item.doc_number} (${checkInNewRev}). Lock released. Draft updated in Tier 3 ready for master PDF promotion.`,
+        type: 'success',
+        actionLabel: 'Go to Tier 3 to Promote PDF',
+        actionTier: 'WORKING_DOCS',
+      });
     } catch (err) {
       console.error('Check-in error:', err);
       alert('Failed to check in file.');
@@ -1002,7 +1193,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
             <Lock className="w-4 h-4 text-amber-400" />
             Tier 2: Source File Vault (Native Masters Repository)
             <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-950 font-mono font-bold text-amber-400">
-              {vaultItems.length}
+              {effectiveVaultItems.length}
             </span>
           </button>
 
@@ -1028,6 +1219,43 @@ export const QmsDocumentControl: React.FC<Props> = ({
           {activeTier === 'WORKING_DOCS' && 'Isolated draft workspace — prevents unapproved revisions on shopfloor'}
         </span>
       </div>
+
+      {/* Toast Notification Banner for Vault Events */}
+      {vaultNotification && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 shadow-lg transition-all ${
+            vaultNotification.type === 'success'
+              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+              : 'bg-blue-950/40 border-blue-500/40 text-blue-200'
+          }`}
+        >
+          <div className="flex items-center gap-2 text-xs">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{vaultNotification.message}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {vaultNotification.actionTier && vaultNotification.actionLabel && (
+              <button
+                onClick={() => {
+                  if (vaultNotification.actionTier) {
+                    setActiveTier(vaultNotification.actionTier);
+                  }
+                  setVaultNotification(null);
+                }}
+                className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold rounded border border-white/20 transition-colors whitespace-nowrap"
+              >
+                {vaultNotification.actionLabel} →
+              </button>
+            )}
+            <button
+              onClick={() => setVaultNotification(null)}
+              className="text-slate-400 hover:text-white p-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* =========================================================================
           TIER 1: CONTROLLED DOCUMENTS (APPROVED PDFS ONLY)
@@ -1091,7 +1319,7 @@ export const QmsDocumentControl: React.FC<Props> = ({
                     </tr>
                   ) : (
                     filteredDocs.map((doc) => {
-                      const vaultMatch = vaultItems.find((v) => v.doc_number === doc.doc_number);
+                      const vaultMatch = effectiveVaultItems.find((v) => v.doc_number.toUpperCase() === doc.doc_number.toUpperCase());
 
                       return (
                         <tr key={doc.id} className="hover:bg-slate-800/40 transition-colors">
@@ -1139,7 +1367,19 @@ export const QmsDocumentControl: React.FC<Props> = ({
                               </button>
 
                               <button
-                                onClick={() => downloadDocumentFile(doc.storage_path || '', doc.pdf_file_name || `${doc.doc_number}_CONTROLLED.pdf`, doc.pdf_file_url)}
+                                onClick={() =>
+                                  downloadDocumentFile(
+                                    doc.storage_path || '',
+                                    doc.pdf_file_name || `${doc.doc_number}_CONTROLLED.pdf`,
+                                    doc.pdf_file_url,
+                                    {
+                                      docNumber: doc.doc_number,
+                                      title: doc.title,
+                                      revision: doc.current_revision,
+                                      owner: doc.owner,
+                                    }
+                                  )
+                                }
                                 title="Download controlled master PDF"
                                 className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition-colors"
                               >
@@ -1148,11 +1388,20 @@ export const QmsDocumentControl: React.FC<Props> = ({
 
                               {vaultMatch && (
                                 <button
-                                  onClick={() => setActiveTier('SOURCE_VAULT')}
-                                  title={`Native Master File in Vault: ${vaultMatch.file_name}`}
-                                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] flex items-center gap-1 border border-slate-700 transition-colors"
+                                  onClick={() => handleToggleVaultCheckout(vaultMatch)}
+                                  title={
+                                    vaultMatch.is_checked_out
+                                      ? `Checked out by ${vaultMatch.checked_out_by}. Click to manage check-in.`
+                                      : `Check-out native master (${vaultMatch.file_name}) and start drafting in Tier 3`
+                                  }
+                                  className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow ${
+                                    vaultMatch.is_checked_out
+                                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30'
+                                      : 'bg-amber-600 hover:bg-amber-500 text-white'
+                                  }`}
                                 >
-                                  <Lock className="w-3 h-3 text-amber-400" /> Vault
+                                  <Lock className="w-3.5 h-3.5" />
+                                  {vaultMatch.is_checked_out ? 'Checked Out' : 'Check-Out'}
                                 </button>
                               )}
                             </div>
@@ -1189,10 +1438,36 @@ export const QmsDocumentControl: React.FC<Props> = ({
               </span>
               <button
                 onClick={() => setIsDepositVaultModalOpen(true)}
-                className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5"
+                className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow"
               >
                 <Plus className="w-3.5 h-3.5" /> Deposit Master File
               </button>
+            </div>
+          </div>
+
+          {/* Tier 2 Search & Summary Filter */}
+          <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-slate-900/80 p-3.5 rounded-xl border border-slate-800">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-mono font-bold px-2.5 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                Total Master Records: {effectiveVaultItems.length}
+              </span>
+              <span className="font-mono px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                Locked (Ready): {effectiveVaultItems.filter((i) => !i.is_checked_out).length}
+              </span>
+              <span className="font-mono px-2.5 py-1 rounded bg-rose-500/10 text-rose-300 border border-rose-500/30">
+                Checked Out: {effectiveVaultItems.filter((i) => i.is_checked_out).length}
+              </span>
+            </div>
+
+            <div className="relative w-full md:w-80">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search vault #, file name, author..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
             </div>
           </div>
 
@@ -1210,72 +1485,107 @@ export const QmsDocumentControl: React.FC<Props> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {vaultItems.length === 0 ? (
+                  {filteredVaultItems.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="text-center py-8 text-slate-500 font-mono">
-                        No native source files currently in vault. Check in editable .docx, .xlsx, or .dwg files using &quot;Deposit Master File&quot;.
+                        No native source files matching criteria. Check in editable .docx, .xlsx, or .dwg files using &quot;Deposit Master File&quot;.
                       </td>
                     </tr>
                   ) : (
-                    vaultItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 px-4 font-mono font-bold text-white">
-                        <span className="text-amber-400 block">{item.doc_number}</span>
-                        <span className="text-[10px] text-slate-400">{item.revision}</span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2">
-                          {getFileTypeIcon(item.file_type)}
-                          <span className="font-mono text-slate-200 font-semibold">{item.file_name}</span>
-                        </div>
-                        {item.notes && <p className="text-[11px] text-slate-400 mt-0.5">{item.notes}</p>}
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">
-                        <span className="uppercase text-slate-200 block">{item.file_type} File</span>
-                        <span>{(item.file_size_bytes / (1024 * 1024)).toFixed(2)} MB</span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        {item.is_checked_out ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1 w-fit">
-                            <Lock className="w-3 h-3 text-rose-400" />
-                            Checked Out ({item.checked_out_by || 'Author'})
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 w-fit">
-                            <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                            Locked in Vault (Ready)
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">
-                        <div>{item.uploaded_at}</div>
-                        <div className="text-[10px] text-slate-500">{item.uploaded_by}</div>
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleToggleVaultCheckout(item)}
-                            className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors ${
-                              item.is_checked_out
-                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                                : 'bg-amber-600 hover:bg-amber-500 text-white'
-                            }`}
-                          >
-                            <Lock className="w-3.5 h-3.5" />
-                            {item.is_checked_out ? 'Check-in Source' : 'Check-out & Download'}
-                          </button>
+                    filteredVaultItems.map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3.5 px-4 font-mono font-bold text-white">
+                          <span className="text-amber-400 block">{item.doc_number}</span>
+                          <span className="text-[10px] text-slate-400">{item.revision}</span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2">
+                            {getFileTypeIcon(item.file_type)}
+                            <span className="font-mono text-slate-200 font-semibold">{item.file_name}</span>
+                          </div>
+                          {item.notes && <p className="text-[11px] text-slate-400 mt-0.5">{item.notes}</p>}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">
+                          <span className="uppercase text-slate-200 block">{item.file_type} File</span>
+                          <span>{(item.file_size_bytes / (1024 * 1024)).toFixed(2)} MB</span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {item.is_checked_out ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1 w-fit">
+                              <Lock className="w-3 h-3 text-rose-400" />
+                              Checked Out ({item.checked_out_by || 'Author'})
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 w-fit">
+                              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                              Locked in Vault (Ready)
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">
+                          <div>{item.uploaded_at}</div>
+                          <div className="text-[10px] text-slate-500">{item.uploaded_by}</div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {item.is_checked_out ? (
+                              <>
+                                <button
+                                  onClick={() => handleToggleVaultCheckout(item)}
+                                  className="px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow"
+                                >
+                                  <Upload className="w-3.5 h-3.5" /> Check-in Source
+                                </button>
+                                <button
+                                  onClick={() => setActiveTier('WORKING_DOCS')}
+                                  title="View corresponding draft in Tier 3"
+                                  className="px-2.5 py-1 bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-500/40 rounded text-xs font-medium flex items-center gap-1"
+                                >
+                                  <Clock className="w-3.5 h-3.5 text-purple-400" /> View Draft
+                                </button>
+                                <button
+                                  onClick={() => handleCancelVaultCheckout(item)}
+                                  title="Cancel check-out and release lock"
+                                  className="p-1 bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300 rounded border border-slate-700 transition-colors"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => handleToggleVaultCheckout(item)}
+                                  className="px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 bg-amber-600 hover:bg-amber-500 text-white transition-colors shadow"
+                                >
+                                  <Lock className="w-3.5 h-3.5" /> Check-out & Download
+                                </button>
 
-                          <button
-                            onClick={() => downloadDocumentFile(item.storage_path || '', item.file_name, item.file_url)}
-                            title={`Download native file: ${item.file_name}`}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium border border-slate-700 flex items-center gap-1"
-                          >
-                            <Download className="w-3.5 h-3.5" /> Download
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )))}
+                                <button
+                                  onClick={() =>
+                                    downloadDocumentFile(
+                                      item.storage_path || '',
+                                      item.file_name,
+                                      item.file_url,
+                                      {
+                                        docNumber: item.doc_number,
+                                        title: item.title,
+                                        revision: item.revision,
+                                        owner: item.uploaded_by,
+                                      }
+                                    )
+                                  }
+                                  title={`Download native file: ${item.file_name}`}
+                                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium border border-slate-700 flex items-center gap-1"
+                                >
+                                  <Download className="w-3.5 h-3.5" /> Download
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1396,6 +1706,11 @@ export const QmsDocumentControl: React.FC<Props> = ({
                         <td className="py-3.5 px-4 font-mono font-bold text-white">
                           <span className="text-purple-400 block">{w.doc_number}</span>
                           <span className="text-[10px] text-slate-400">{w.target_revision}</span>
+                          {w.source_vault_ref && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 mt-1 w-fit">
+                              <Lock className="w-2.5 h-2.5 text-amber-400" /> From Vault
+                            </span>
+                          )}
                         </td>
                         <td className="py-3.5 px-4 max-w-[240px]">
                           <span className="font-semibold text-white block truncate">{w.title}</span>
@@ -1438,15 +1753,25 @@ export const QmsDocumentControl: React.FC<Props> = ({
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {w.source_storage_path && (
-                              <button
-                                onClick={() => downloadDocumentFile(w.source_storage_path || '', w.source_file_name || `${w.doc_number}_Draft.docx`, w.source_file_url)}
-                                title="Download draft source file"
-                                className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition-colors"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                            <button
+                              onClick={() =>
+                                downloadDocumentFile(
+                                  w.source_storage_path || '',
+                                  w.source_file_name || `${w.doc_number}_Draft.${w.source_file_type || 'docx'}`,
+                                  w.source_file_url,
+                                  {
+                                    docNumber: w.doc_number,
+                                    title: w.title,
+                                    revision: w.target_revision,
+                                    owner: w.author,
+                                  }
+                                )
+                              }
+                              title={`Download working draft: ${w.source_file_name || `${w.doc_number}_Draft.docx`}`}
+                              className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition-colors"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
 
                             <button
                               onClick={() => {
@@ -1456,6 +1781,27 @@ export const QmsDocumentControl: React.FC<Props> = ({
                               className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow"
                             >
                               <ShieldCheck className="w-3.5 h-3.5" /> Promote to Controlled PDF
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                if (confirm(`Discard working draft ${w.doc_number} (${w.target_revision})?`)) {
+                                  setWorkingDocs((prev) => prev.filter((item) => item.id !== w.id));
+                                  if (w.source_vault_ref) {
+                                    setVaultItems((vPrev) =>
+                                      vPrev.map((v) =>
+                                        v.id === w.source_vault_ref || v.doc_number.toUpperCase() === w.doc_number.toUpperCase()
+                                          ? { ...v, is_checked_out: false, checked_out_by: null }
+                                          : v
+                                      )
+                                    );
+                                  }
+                                }
+                              }}
+                              title="Discard working draft"
+                              className="p-1 bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300 rounded border border-slate-700 transition-colors"
+                            >
+                              <X className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
